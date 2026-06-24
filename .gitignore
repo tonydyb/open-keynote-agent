@@ -31,3 +31,5 @@ env/
 # IDE/editor
 .idea/
 .vscode/
+
+*.egg-info/

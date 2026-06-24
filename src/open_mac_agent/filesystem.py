@@ -20,13 +20,19 @@ def move_files(plan: OrganizePlan) -> MoveResult:
         destination = operation.destination
 
         try:
+            source.resolve().relative_to(target_dir)
+        except ValueError:
+            result.skipped.append(SkippedFile(source=source, reason="Source path outside target directory"))
+            continue
+
+        if not source.is_file():
+            result.skipped.append(SkippedFile(source=source, reason="Source is not a regular file"))
+            continue
+
+        try:
             destination.resolve().relative_to(target_dir)
         except ValueError:
             result.skipped.append(SkippedFile(source=source, reason="Unsafe destination path"))
-            continue
-
-        if not source.exists():
-            result.skipped.append(SkippedFile(source=source, reason="Source file missing"))
             continue
 
         if destination.exists():
