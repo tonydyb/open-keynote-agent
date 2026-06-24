@@ -30,6 +30,7 @@ env/
 
 # IDE/editor
 .idea/
-.vscode/
+.vscode/*
+!.vscode/launch.json
 
 *.egg-info/

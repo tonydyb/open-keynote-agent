@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from open_mac_agent.filesystem import move_files
 from open_mac_agent.organizer import OrganizePlan, MoveOperation
 
@@ -101,5 +103,30 @@ def test_move_files_skips_directory_source(tmp_path: Path) -> None:
     assert len(result.skipped) == 1
     assert result.skipped[0].source == source
     assert "Source is not a regular file" in result.skipped[0].reason
+    assert source.exists()
+    assert not destination.exists()
+
+
+def test_move_files_skips_move_os_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / ".DS_Store"
+    source.write_text("metadata")
+    destination = tmp_path / "Others" / ".DS_Store"
+
+    def raise_permission_error(self: Path, target: Path) -> Path:
+        raise PermissionError(13, "Permission denied", str(self), str(target))
+
+    monkeypatch.setattr(Path, "rename", raise_permission_error)
+
+    plan = OrganizePlan(
+        target_dir=tmp_path,
+        operations=[MoveOperation(source=source, destination=destination, category="Others")],
+    )
+
+    result = move_files(plan)
+
+    assert not result.moved
+    assert len(result.skipped) == 1
+    assert result.skipped[0].source == source
+    assert "Move failed" in result.skipped[0].reason
     assert source.exists()
     assert not destination.exists()

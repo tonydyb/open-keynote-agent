@@ -196,3 +196,7 @@ def ask(
     })
 
     handle_plan(session=session, plan=plan, target_dir=target_dir, dry_run=dry_run)
+
+
+if __name__ == "__main__":
+    app()

@@ -39,8 +39,13 @@ def move_files(plan: OrganizePlan) -> MoveResult:
             result.skipped.append(SkippedFile(source=source, reason="Destination already exists"))
             continue
 
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        source.rename(destination)
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            source.rename(destination)
+        except OSError as exc:
+            result.skipped.append(SkippedFile(source=source, reason=f"Move failed: {exc}"))
+            continue
+
         result.moved.append(destination)
 
     return result
