@@ -47,12 +47,12 @@
 
 ## 6. LLM Abstraction
 
-- [ ] Define provider-neutral `LLMClient` protocol.
-- [ ] Define provider selection through `OMA_LLM_PROVIDER`.
-- [ ] Implement `FakeLLMClient` for tests.
-- [ ] Implement natural-language request schema validation.
-- [ ] Reject malformed or unsupported LLM plans with clear errors.
-- [ ] Add tests using `FakeLLMClient`.
+- [x] Define provider-neutral `LLMClient` protocol.
+- [x] Define provider selection through `OMA_LLM_PROVIDER`.
+- [x] Implement `FakeLLMClient` for tests.
+- [x] Implement natural-language request schema validation.
+- [x] Reject malformed or unsupported LLM plans with clear errors.
+- [x] Add tests using `FakeLLMClient`.
 
 ## 7. LLM Provider Adapters
 
