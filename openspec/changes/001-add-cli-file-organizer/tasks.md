@@ -56,15 +56,15 @@
 
 ## 7. LLM Provider Adapters
 
-- [ ] Implement `BedrockConverseClient` using `boto3` Bedrock Runtime.
-- [ ] Support configurable `AWS_PROFILE`, `AWS_REGION`, and `BEDROCK_MODEL_ID`.
-- [ ] Implement `OpenAIClient` using a user-provided `OPENAI_API_KEY`.
-- [ ] Support configurable `OPENAI_MODEL`.
+- [x] Implement `BedrockConverseClient` using `boto3` Bedrock Runtime.
+- [x] Support configurable `AWS_PROFILE`, `AWS_REGION`, and `BEDROCK_MODEL_ID`.
+- [x] Implement `OpenAIClient` using a user-provided `OPENAI_API_KEY`.
+- [x] Support configurable `OPENAI_MODEL`.
 - [ ] Implement `GeminiClient` using a user-provided `GEMINI_API_KEY`.
 - [ ] Support configurable `GEMINI_MODEL`.
-- [ ] Load provider configuration from environment variables.
-- [ ] Add a concise system prompt that returns only validated JSON.
-- [ ] Add developer documentation for Bedrock, OpenAI, and Gemini setup.
+- [x] Load provider configuration from environment variables.
+- [x] Add a concise system prompt that returns only validated JSON.
+- [x] Add developer documentation for Bedrock, OpenAI, and Gemini setup.
 
 ## 8. Natural-Language Agent Command
 

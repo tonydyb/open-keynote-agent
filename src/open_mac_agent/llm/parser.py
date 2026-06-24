@@ -3,7 +3,10 @@ from __future__ import annotations
 import os
 
 from open_mac_agent.llm.base import LLMClient
+from open_mac_agent.llm.bedrock import BedrockConverseClient
 from open_mac_agent.llm.fake import FakeLLMClient
+from open_mac_agent.llm.gemini import GeminiClient
+from open_mac_agent.llm.openai import OpenAIClient
 from open_mac_agent.llm.schema import LLMPlanResponse, validate_llm_plan
 
 
@@ -15,9 +18,25 @@ def load_llm_client_from_env() -> LLMClient:
     provider = os.environ.get("OMA_LLM_PROVIDER", "fake").lower()
     if provider == "fake":
         return FakeLLMClient()
+    if provider == "bedrock":
+        return BedrockConverseClient(
+            model_id=os.environ.get("BEDROCK_MODEL_ID", ""),
+            region=os.environ.get("AWS_REGION"),
+            profile=os.environ.get("AWS_PROFILE"),
+        )
+    if provider == "openai":
+        return OpenAIClient(
+            api_key=os.environ.get("OPENAI_API_KEY", ""),
+            model=os.environ.get("OPENAI_MODEL"),
+        )
+    if provider == "gemini":
+        return GeminiClient(
+            api_key=os.environ.get("GEMINI_API_KEY", ""),
+            model=os.environ.get("GEMINI_MODEL"),
+        )
 
     raise UnsupportedProviderError(
-        f"Unsupported LLM provider: {provider}. Valid providers are fake."
+        f"Unsupported LLM provider: {provider}. Valid providers are fake, bedrock, openai, gemini."
     )
 
 

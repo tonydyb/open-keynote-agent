@@ -18,7 +18,7 @@ def test_load_fake_llm_client_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_load_llm_client_unsupported_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OMA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OMA_LLM_PROVIDER", "unknown")
     with pytest.raises(UnsupportedProviderError):
         load_llm_client_from_env()
 
