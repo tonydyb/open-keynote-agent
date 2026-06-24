@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from open_mac_agent.llm.base import LLMClient
+from open_mac_agent.llm.json_utils import parse_json_object
 
 SYSTEM_PROMPT = "Return only valid JSON matching the requested schema. Do not include any extra text."
 
@@ -49,6 +50,6 @@ class BedrockConverseClient(LLMClient):
         for block in content:
             text = block.get("text") if isinstance(block, dict) else getattr(block, "text", None)
             if text:
-                return json.loads(text)
+                return parse_json_object(text)
 
         raise ValueError("Bedrock response did not contain a JSON text payload")

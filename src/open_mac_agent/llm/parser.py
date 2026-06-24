@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 
+from dotenv import load_dotenv
+
 from open_mac_agent.llm.base import LLMClient
 from open_mac_agent.llm.bedrock import BedrockConverseClient
 from open_mac_agent.llm.fake import FakeLLMClient
@@ -15,6 +17,8 @@ class UnsupportedProviderError(ValueError):
 
 
 def load_llm_client_from_env() -> LLMClient:
+    if os.environ.get("OMA_SKIP_DOTENV") != "1":
+        load_dotenv()
     provider = os.environ.get("OMA_LLM_PROVIDER", "fake").lower()
     if provider == "fake":
         return FakeLLMClient()

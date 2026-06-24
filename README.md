@@ -34,6 +34,8 @@ uv run oma organize ./demo --dry-run
 uv run oma ask "Organize ./demo into PDFs and Images"
 ```
 
+This command requires `OMA_LLM_PROVIDER` to be set to `bedrock`, `openai`, or `gemini`. The `fake` provider is only for tests.
+
 6. Apply a natural-language plan after confirmation:
 
 ```bash
@@ -43,6 +45,14 @@ uv run oma ask "Organize ./demo into PDFs and Images" --apply
 ## Environment
 
 Copy `.env.example` to `.env` and configure your preferred LLM provider when ready.
+
+For example, using OpenAI:
+
+```bash
+OMA_LLM_PROVIDER=openai
+OPENAI_API_KEY=your-api-key
+OPENAI_MODEL=gpt-4o
+```
 
 ## LLM Provider Setup
 

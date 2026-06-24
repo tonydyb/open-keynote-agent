@@ -5,6 +5,11 @@ from open_mac_agent.llm.parser import UnsupportedProviderError, load_llm_client_
 from open_mac_agent.llm.schema import OrganizeRequest
 
 
+@pytest.fixture(autouse=True)
+def skip_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
+
+
 def test_load_fake_llm_client_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OMA_LLM_PROVIDER", raising=False)
     client = load_llm_client_from_env()
@@ -15,6 +20,12 @@ def test_load_fake_llm_client_explicit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OMA_LLM_PROVIDER", "fake")
     client = load_llm_client_from_env()
     assert isinstance(client, FakeLLMClient)
+
+
+def test_fake_llm_client_without_response_explains_provider_setup() -> None:
+    client = FakeLLMClient()
+    with pytest.raises(ValueError, match="Set OMA_LLM_PROVIDER"):
+        parse_natural_language_request(client, "Organize the folder")
 
 
 def test_load_llm_client_unsupported_provider(monkeypatch: pytest.MonkeyPatch) -> None:

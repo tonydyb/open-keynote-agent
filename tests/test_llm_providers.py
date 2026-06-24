@@ -4,6 +4,11 @@ from open_mac_agent.llm.fake import FakeLLMClient
 from open_mac_agent.llm.parser import UnsupportedProviderError, load_llm_client_from_env
 
 
+@pytest.fixture(autouse=True)
+def skip_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
+
+
 def test_load_fake_provider_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OMA_LLM_PROVIDER", raising=False)
     client = load_llm_client_from_env()

@@ -43,7 +43,7 @@ def test_bedrock_complete_json_returns_dict(monkeypatch: pytest.MonkeyPatch) -> 
             return {
                 "output": {
                     "message": {
-                        "content": [{"text": json.dumps(expected_response)}],
+                        "content": [{"text": f"```json\n{json.dumps(expected_response)}\n```"}],
                     }
                 }
             }
@@ -98,7 +98,7 @@ def test_openai_complete_json_returns_dict(monkeypatch: pytest.MonkeyPatch) -> N
                 @staticmethod
                 def create(model: str, input: list[dict[str, str]], text_format: dict[str, dict[str, str]]):
                     assert model == "test-openai"
-                    return DummyOpenAIResponse(json.dumps(expected_response))
+                    return DummyOpenAIResponse(f"```json\n{json.dumps(expected_response)}\n```")
 
             return Responses()
 
@@ -158,7 +158,7 @@ def test_gemini_complete_json_returns_dict(monkeypatch: pytest.MonkeyPatch) -> N
                         assert config.system_instruction == "Return only valid JSON matching the requested schema. Do not include any extra text."
                         assert config.temperature == 0.0
                         assert config.response_mime_type == "application/json"
-                        return DummyGeminiResponse(json.dumps(expected_response))
+                        return DummyGeminiResponse(f"```json\n{json.dumps(expected_response)}\n```")
 
                 self.models = Models()
 
@@ -218,6 +218,7 @@ def test_gemini_missing_google_genai_import_raises(monkeypatch: pytest.MonkeyPat
 
 
 def test_gemini_requires_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
     with pytest.raises(ValueError, match="GEMINI_MODEL is required for Gemini provider"):
         GeminiClient(api_key="fake-key", model=None)
 
