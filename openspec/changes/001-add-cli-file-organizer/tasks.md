@@ -68,12 +68,12 @@
 
 ## 8. Natural-Language Agent Command
 
-- [ ] Implement `oma ask "<request>"`.
-- [ ] Convert user text into a structured organize request.
-- [ ] Validate the target folder exists.
-- [ ] Build and display the move plan.
-- [ ] Default to dry-run.
-- [ ] Require explicit confirmation before applying.
+- [x] Implement `oma ask "<request>"`.
+- [x] Convert user text into a structured organize request.
+- [x] Validate the target folder exists.
+- [x] Build and display the move plan.
+- [x] Default to dry-run.
+- [x] Require explicit confirmation before applying.
 
 ## 9. Quality Bar
 

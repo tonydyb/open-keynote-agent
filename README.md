@@ -22,6 +22,24 @@ uv run oma --help
 uv run oma version
 ```
 
+4. Preview deterministic file organization:
+
+```bash
+uv run oma organize ./demo --dry-run
+```
+
+5. Preview natural-language file organization:
+
+```bash
+uv run oma ask "Organize ./demo into PDFs and Images"
+```
+
+6. Apply a natural-language plan after confirmation:
+
+```bash
+uv run oma ask "Organize ./demo into PDFs and Images" --apply
+```
+
 ## Environment
 
 Copy `.env.example` to `.env` and configure your preferred LLM provider when ready.
@@ -42,3 +60,5 @@ Configure provider environment variables:
 - Gemini: `GEMINI_API_KEY`, optional `GEMINI_MODEL`
 
 The CLI uses `load_llm_client_from_env()` to select the provider without leaking provider logic into the organizer.
+
+Natural-language requests default to dry-run. File moves only happen when apply mode is requested and the confirmation prompt is accepted.
