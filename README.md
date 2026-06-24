@@ -62,3 +62,12 @@ Configure provider environment variables:
 The CLI uses `load_llm_client_from_env()` to select the provider without leaking provider logic into the organizer.
 
 Natural-language requests default to dry-run. File moves only happen when apply mode is requested and the confirmation prompt is accepted.
+
+## Safety Notes
+
+- `oma organize` and `oma ask` default to previewing the move plan without changing files.
+- `--apply` still requires an explicit confirmation prompt before any file is moved.
+- Existing destination files are never overwritten; conflicting moves are skipped and recorded.
+- File operations are limited to regular files inside the target directory.
+- Tests use `FakeLLMClient` and do not require cloud credentials, API keys, or network access.
+- Each run writes audit artifacts under `.runs/<run-id>/`.

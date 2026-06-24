@@ -77,9 +77,9 @@
 
 ## 9. Quality Bar
 
-- [ ] Run `ruff check`.
-- [ ] Run `pytest`.
-- [ ] Verify no tests require cloud credentials or API keys.
-- [ ] Verify dry-run never mutates files.
-- [ ] Verify apply mode never overwrites existing files.
-- [ ] Update README with examples and safety notes.
+- [x] Run `ruff check`.
+- [x] Run `pytest`.
+- [x] Verify no tests require cloud credentials or API keys.
+- [x] Verify dry-run never mutates files.
+- [x] Verify apply mode never overwrites existing files.
+- [x] Update README with examples and safety notes.

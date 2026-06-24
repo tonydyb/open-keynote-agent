@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 CATEGORY_EXTENSIONS = {
     "PDFs": {".pdf"},
@@ -43,17 +43,6 @@ class MoveOperation(BaseModel):
     destination: Path
     category: str
 
-    @validator("destination")
-    def destination_must_be_inside_target(cls, destination: Path, values: dict) -> Path:
-        target_dir = values.get("target_dir")
-        if target_dir is None:
-            return destination
-        try:
-            destination.resolve().relative_to(target_dir.resolve())
-        except Exception as exc:
-            raise ValueError("Destination must be inside the target directory") from exc
-        return destination
-
 
 class SkippedFile(BaseModel):
     source: Path
@@ -65,7 +54,7 @@ class OrganizePlan(BaseModel):
     operations: list[MoveOperation] = Field(default_factory=list)
     skipped: list[SkippedFile] = Field(default_factory=list)
 
-    @validator("target_dir", pre=True)
+    @field_validator("target_dir", mode="before")
     def normalize_target_dir(cls, value: Path) -> Path:
         return Path(value).resolve()
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +12,7 @@ class RunSession(BaseModel):
     run_id: str
     target_dir: Path
     command: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     request_path: Path | None = None
     plan_path: Path | None = None
     tool_calls_path: Path | None = None
@@ -58,5 +58,5 @@ class RunSession(BaseModel):
 
 
 def create_run_session(target_dir: Path, command: str) -> RunSession:
-    run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     return RunSession(run_id=run_id, target_dir=target_dir.resolve(), command=command)
