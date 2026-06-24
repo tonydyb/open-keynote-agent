@@ -30,23 +30,25 @@ class BedrockConverseClient(LLMClient):
         session = boto3.Session(profile_name=self.profile) if self.profile else boto3.Session()
         client = session.client("bedrock-runtime", region_name=self.region)
         prompt = "\n".join(message["content"] for message in messages)
+        schema_text = json.dumps(schema)
         response = client.converse(
             modelId=self.model_id,
-            input=f"{SYSTEM_PROMPT}\n{prompt}",
-            contentType="application/json",
+            system=[{"text": f"{SYSTEM_PROMPT}\nJSON schema: {schema_text}"}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{"text": prompt}],
+                }
+            ],
+            inferenceConfig={"temperature": 0},
         )
 
-        body = None
-        if isinstance(response, dict):
-            body = response.get("body")
-        else:
-            body = getattr(response, "body", None)
+        output = response.get("output", {}) if isinstance(response, dict) else getattr(response, "output", {})
+        message = output.get("message", {}) if isinstance(output, dict) else getattr(output, "message", {})
+        content = message.get("content", []) if isinstance(message, dict) else getattr(message, "content", [])
+        for block in content:
+            text = block.get("text") if isinstance(block, dict) else getattr(block, "text", None)
+            if text:
+                return json.loads(text)
 
-        if hasattr(body, "read"):
-            body = body.read().decode("utf-8")
-        if isinstance(body, bytes):
-            body = body.decode("utf-8")
-        if not isinstance(body, str):
-            raise ValueError("Bedrock response did not contain a JSON string body")
-
-        return json.loads(body)
+        raise ValueError("Bedrock response did not contain a JSON text payload")

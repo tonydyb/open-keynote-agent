@@ -60,8 +60,8 @@
 - [x] Support configurable `AWS_PROFILE`, `AWS_REGION`, and `BEDROCK_MODEL_ID`.
 - [x] Implement `OpenAIClient` using a user-provided `OPENAI_API_KEY`.
 - [x] Support configurable `OPENAI_MODEL`.
-- [ ] Implement `GeminiClient` using a user-provided `GEMINI_API_KEY`.
-- [ ] Support configurable `GEMINI_MODEL`.
+- [x] Implement `GeminiClient` using a user-provided `GEMINI_API_KEY`.
+- [x] Support configurable `GEMINI_MODEL`.
 - [x] Load provider configuration from environment variables.
 - [x] Add a concise system prompt that returns only validated JSON.
 - [x] Add developer documentation for Bedrock, OpenAI, and Gemini setup.

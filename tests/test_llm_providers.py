@@ -28,6 +28,7 @@ def test_load_openai_provider_configuration(monkeypatch: pytest.MonkeyPatch) -> 
 def test_load_gemini_provider_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OMA_LLM_PROVIDER", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "fake-key")
+    monkeypatch.setenv("GEMINI_MODEL", "test-gemini")
     client = load_llm_client_from_env()
     assert client.__class__.__name__ == "GeminiClient"
 

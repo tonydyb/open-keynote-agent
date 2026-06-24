@@ -23,14 +23,9 @@ class DummyOpenAIResponse:
         ]
 
 
-class DummyGeminiGeneration:
-    def __init__(self, text: str):
-        self.text = text
-
-
 class DummyGeminiResponse:
     def __init__(self, text: str):
-        self.generations = [DummyGeminiGeneration(text)]
+        self.text = text
 
 
 def test_bedrock_complete_json_returns_dict(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,10 +34,19 @@ def test_bedrock_complete_json_returns_dict(monkeypatch: pytest.MonkeyPatch) -> 
     expected_response = {"organize_request": {"target_dir": ".", "dry_run": True}}
 
     class FakeClient:
-        def converse(self, modelId: str, input: str, contentType: str):
+        def converse(self, modelId: str, system: list[dict[str, str]], messages: list[dict], inferenceConfig: dict):
             assert modelId == model_id
-            assert contentType == "application/json"
-            return {"body": json.dumps(expected_response)}
+            assert "Return only valid JSON" in system[0]["text"]
+            assert "JSON schema" in system[0]["text"]
+            assert messages == [{"role": "user", "content": [{"text": "hello"}]}]
+            assert inferenceConfig == {"temperature": 0}
+            return {
+                "output": {
+                    "message": {
+                        "content": [{"text": json.dumps(expected_response)}],
+                    }
+                }
+            }
 
     class FakeSession:
         def __init__(self, profile_name=None):
@@ -138,31 +142,57 @@ def test_gemini_complete_json_returns_dict(monkeypatch: pytest.MonkeyPatch) -> N
     client = GeminiClient(api_key="fake-key", model="test-gemini")
     expected_response = {"organize_request": {"target_dir": ".", "dry_run": True}}
 
-    class FakeModel:
-        @staticmethod
-        def generate(prompt: str, temperature: float):
-            assert "Return only valid JSON" in prompt
-            return DummyGeminiResponse(json.dumps(expected_response))
-
     class FakeGenAI(ModuleType):
         def __init__(self):
             super().__init__("google.genai")
 
-        class TextGenerationModel:
-            @staticmethod
-            def from_pretrained(model: str):
-                assert model == "test-gemini"
-                return FakeModel()
+        class Client:
+            def __init__(self, api_key: str):
+                assert api_key == "fake-key"
+
+                class Models:
+                    @staticmethod
+                    def generate_content(model: str, contents: str, config):
+                        assert model == "test-gemini"
+                        assert contents == "hi"
+                        assert config.system_instruction == "Return only valid JSON matching the requested schema. Do not include any extra text."
+                        assert config.temperature == 0.0
+                        assert config.response_mime_type == "application/json"
+                        return DummyGeminiResponse(json.dumps(expected_response))
+
+                self.models = Models()
+
+    class FakeGenerateContentConfig:
+        def __init__(
+            self,
+            system_instruction: str,
+            temperature: float,
+            response_mime_type: str,
+            response_schema: dict,
+        ):
+            self.system_instruction = system_instruction
+            self.temperature = temperature
+            self.response_mime_type = response_mime_type
+            self.response_schema = response_schema
 
     fake_google = ModuleType("google")
-    fake_google.genai = FakeGenAI
+    fake_google.genai = FakeGenAI()
+    fake_google_genai_types = ModuleType("google.genai.types")
+    fake_google_genai_types.GenerateContentConfig = FakeGenerateContentConfig
+    fake_google.genai.types = fake_google_genai_types
     monkeypatch.setitem(sys.modules, "google", fake_google)
+    monkeypatch.setitem(sys.modules, "google.genai", fake_google.genai)
+    monkeypatch.setitem(sys.modules, "google.genai.types", fake_google_genai_types)
 
     original_import = builtins.__import__
 
     def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "google" or name.startswith("google."):
+        if name == "google":
             return fake_google
+        if name == "google.genai":
+            return fake_google.genai
+        if name == "google.genai.types":
+            return fake_google_genai_types
         return original_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)

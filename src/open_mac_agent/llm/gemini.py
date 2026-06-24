@@ -21,22 +21,24 @@ class GeminiClient(LLMClient):
     def complete_json(self, messages: list[dict[str, Any]], schema: dict[str, Any]) -> dict[str, Any]:
         try:
             from google import genai
+            from google.genai import types
         except ImportError as exc:
             raise ImportError("google-genai is required for GeminiClient") from exc
 
         prompt = "\n".join(message["content"] for message in messages)
-        model = genai.TextGenerationModel.from_pretrained(self.model)
-        response = model.generate(prompt=f"{SYSTEM_PROMPT}\n{prompt}", temperature=0.0)
+        client = genai.Client(api_key=self.api_key)
+        response = client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                temperature=0.0,
+                response_mime_type="application/json",
+                response_schema=schema,
+            ),
+        )
 
         text = getattr(response, "text", None)
-        if text is None:
-            generations = getattr(response, "generations", None)
-            if isinstance(generations, list) and generations:
-                candidate = generations[0]
-                text = getattr(candidate, "text", None)
-                if text is None and isinstance(candidate, dict):
-                    text = candidate.get("text")
-
         if text is None:
             raise ValueError("Gemini response did not contain a JSON string payload")
 
