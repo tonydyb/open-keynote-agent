@@ -235,6 +235,7 @@ def session(
         try:
             plan = plan_turn(instruction, state, registry, llm_client)
         except PlanValidationError as exc:
+            event_log.append("plan_error", {"turn_index": turn_index, "error": str(exc)})
             console.print(f"[red]Plan error:[/] {exc}")
             turn_index += 1
             continue
@@ -267,14 +268,17 @@ def session(
 
         if approved:
             event_log.append("plan_approved", {"turn_index": turn_index})
-            results = execute_plan(plan, registry, state)
+
+            def _on_step_start(step_index: int, step) -> None:
+                event_log.append(
+                    "tool_called",
+                    {"turn_index": turn_index, "step_index": step_index, "tool": step.tool, "args": step.args},
+                )
+
+            results = execute_plan(plan, registry, state, on_step_start=_on_step_start)
 
             observations: list[str] = []
             for step_index, result in enumerate(results):
-                event_log.append(
-                    "tool_called",
-                    {"turn_index": turn_index, "step_index": step_index, "tool": result.tool, "args": result.args},
-                )
                 event_log.append(
                     "tool_result",
                     {

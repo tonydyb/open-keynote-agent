@@ -396,3 +396,119 @@ class TestSessionCLI:
         assert result.exit_code == 0
         assert "Skipped" in result.output
         assert "demo" not in str(tmp_path / ".runs")
+
+    def test_plan_error_emits_event(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        client = FakeLLMClient(response={
+            "steps": [{"tool": "no.such.tool", "args": {}, "description": "bad"}]
+        })
+        monkeypatch.setattr(cli_module, "load_llm_client_from_env", lambda: client)
+        result = runner.invoke(app, ["session", "--no-confirm"], input="do something bad\ndone\n")
+        assert result.exit_code == 0
+        assert "Plan error" in result.output
+        runs = list((tmp_path / ".runs").iterdir())
+        events = [json.loads(line) for line in (runs[0] / "events.jsonl").read_text().splitlines()]
+        assert any(e["type"] == "plan_error" for e in events)
+
+    def test_tool_called_logged_before_tool_result(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        client = FakeLLMClient(response={
+            "steps": [{"tool": "demo.get_document_info", "args": {}, "description": "Info"}]
+        })
+        monkeypatch.setattr(cli_module, "load_llm_client_from_env", lambda: client)
+        runner.invoke(app, ["session", "--no-confirm"], input="check\ndone\n")
+        runs = list((tmp_path / ".runs").iterdir())
+        events = [json.loads(line) for line in (runs[0] / "events.jsonl").read_text().splitlines()]
+        types = [e["type"] for e in events]
+        called_idx = types.index("tool_called")
+        result_idx = types.index("tool_result")
+        assert called_idx < result_idx
+
+
+# ---------------------------------------------------------------------------
+# Session ID uniqueness
+# ---------------------------------------------------------------------------
+
+class TestSessionIDUniqueness:
+    def test_two_states_have_different_ids(self):
+        s1 = SessionState()
+        s2 = SessionState()
+        assert s1.session_id != s2.session_id
+
+    def test_session_id_has_uuid_suffix(self):
+        s = SessionState()
+        # format: YYYYMMDDTHHMMSSz-<8 hex chars>
+        parts = s.session_id.split("-")
+        assert len(parts) == 2
+        assert len(parts[1]) == 8
+        assert all(c in "0123456789abcdef" for c in parts[1])
+
+
+# ---------------------------------------------------------------------------
+# Arg type validation
+# ---------------------------------------------------------------------------
+
+class TestArgTypeValidation:
+    def _typed_registry(self) -> ToolRegistry:
+        registry = ToolRegistry()
+        registry.register(ToolDefinition(
+            name="test.typed",
+            description="Takes a string and an int",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "count": {"type": "integer"},
+                },
+                "required": ["label", "count"],
+            },
+            mutating=False,
+            handler=lambda args, ctx: {"observation": "ok"},
+        ))
+        return registry
+
+    def test_planner_rejects_wrong_type(self):
+        registry = self._typed_registry()
+        client = FakeLLMClient(response={
+            "steps": [{"tool": "test.typed", "args": {"label": "x", "count": "not-an-int"}, "description": "bad"}]
+        })
+        state = SessionState()
+        with pytest.raises(PlanValidationError, match="arg type errors"):
+            plan_turn("do typed thing", state, registry, client)
+
+    def test_planner_accepts_correct_types(self):
+        registry = self._typed_registry()
+        client = FakeLLMClient(response={
+            "steps": [{"tool": "test.typed", "args": {"label": "x", "count": 3}, "description": "ok"}]
+        })
+        state = SessionState()
+        plan = plan_turn("do typed thing", state, registry, client)
+        assert len(plan.steps) == 1
+
+    def test_executor_rejects_wrong_type(self):
+        registry = self._typed_registry()
+        state = SessionState()
+        plan = Plan(steps=[ProposedToolCall(
+            tool="test.typed", args={"label": "x", "count": "bad"}, description="bad"
+        )])
+        results = execute_plan(plan, registry, state)
+        assert results[0].ok is False
+        assert "type" in results[0].error.lower()  # type: ignore[union-attr]
+
+    def test_executor_accepts_correct_types(self):
+        registry = self._typed_registry()
+        state = SessionState()
+        plan = Plan(steps=[ProposedToolCall(
+            tool="test.typed", args={"label": "x", "count": 5}, description="ok"
+        )])
+        results = execute_plan(plan, registry, state)
+        assert results[0].ok is True
+
+    def test_bool_rejected_as_integer(self):
+        registry = self._typed_registry()
+        state = SessionState()
+        plan = Plan(steps=[ProposedToolCall(
+            tool="test.typed", args={"label": "x", "count": True}, description="bool"
+        )])
+        results = execute_plan(plan, registry, state)
+        assert results[0].ok is False

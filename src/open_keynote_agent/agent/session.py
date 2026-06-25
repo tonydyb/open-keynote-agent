@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -36,6 +37,8 @@ class Turn(BaseModel):
 class SessionState(BaseModel):
     session_id: str = Field(
         default_factory=lambda: datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        + "-"
+        + uuid.uuid4().hex[:8]
     )
     turns: list[Turn] = Field(default_factory=list)
     context: dict[str, Any] = Field(default_factory=dict)

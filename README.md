@@ -4,7 +4,7 @@ An open-source macOS agent for creating and editing Apple Keynote presentations 
 
 Project slug: `open-keynote-agent`.
 
-Note: the current Python package and CLI still use the earlier `open_keynote_agent` / `oka` names until a later mechanical rename.
+Python package: `open_keynote_agent`. CLI command: `oka`.
 
 ## Current Milestone
 

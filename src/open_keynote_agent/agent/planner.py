@@ -5,6 +5,7 @@ from typing import Any
 
 from open_keynote_agent.agent.registry import ToolRegistry
 from open_keynote_agent.agent.session import Plan, ProposedToolCall, SessionState
+from open_keynote_agent.agent.validation import validate_arg_types
 from open_keynote_agent.llm.base import LLMClient
 
 
@@ -91,6 +92,11 @@ def plan_turn(
         if missing:
             raise PlanValidationError(
                 f"Tool {tool_name!r} missing required args: {missing}"
+            )
+        type_errors = validate_arg_types(args, tool_def.parameters)
+        if type_errors:
+            raise PlanValidationError(
+                f"Tool {tool_name!r} arg type errors: {type_errors}"
             )
         steps.append(
             ProposedToolCall(
