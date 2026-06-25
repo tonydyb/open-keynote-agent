@@ -1,6 +1,23 @@
-# open-mac-agent
+# Open Keynote Agent
 
-A macOS-first AI agent CLI for local file organization.
+An open-source macOS agent for creating and editing Apple Keynote presentations through natural-language, step-by-step workflows.
+
+Project slug: `open-keynote-agent`.
+
+Note: the current Python package and CLI still use the earlier `open_mac_agent` / `oma` names until a later mechanical rename.
+
+## Current Milestone
+
+The current implementation is a CLI file organizer. It is the first learning milestone for the agent foundation:
+
+- LLM provider abstraction
+- structured request validation
+- deterministic local tools
+- confirmation before mutation
+- run logs
+- tests without cloud credentials
+
+Future work is focused on Keynote-specific agent workflows.
 
 ## Quickstart
 
@@ -81,3 +98,12 @@ Natural-language requests default to dry-run. File moves only happen when apply 
 - File operations are limited to regular files inside the target directory.
 - Tests use `FakeLLMClient` and do not require cloud credentials, API keys, or network access.
 - Each run writes audit artifacts under `.runs/<run-id>/`.
+
+## Keynote Roadmap
+
+The next project direction is an interactive Keynote agent:
+
+1. Add an interactive agent runtime with session state, planner, executor, tool registry, observations, and step-by-step logs.
+2. Add Keynote tools using AppleScript or JXA for creating documents, adding slides, editing text, inserting images, and exporting PDF.
+3. Add verification for generated `.key` and PDF outputs.
+4. Expose session events through an API suitable for a future Studio UI.

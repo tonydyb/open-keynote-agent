@@ -1,0 +1,42 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "OMA: version",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "open_mac_agent.cli",
+      "args": ["version"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "OMA: organize dry-run",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "open_mac_agent.cli",
+      // "args": ["organize", "${workspaceFolder}/demo", "--dry-run"],
+      "args": ["organize", "/Users/youbingding/Downloads/tmp", "--dry-run"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "OMA: ask dry-run",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "open_mac_agent.cli",
+      "args": ["ask", "Organize /Users/youbingding/Downloads/tmp into PDFs, Images and Documents"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "envFile": "${workspaceFolder}/.env"
+    }
+  ]
+}
