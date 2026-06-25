@@ -158,7 +158,7 @@ uv run oka session
 
 Starts an interactive REPL. Each turn:
 
-1. Prints the `oma>` prompt.
+1. Prints the `oka>` prompt.
 2. Reads a line of input.
 3. Calls the planner.
 4. Displays the proposed plan.

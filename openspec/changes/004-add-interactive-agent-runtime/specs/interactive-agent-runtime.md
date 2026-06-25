@@ -12,7 +12,7 @@ The runtime is designed so the CLI is one renderer. The core runtime emits struc
 2. A `SessionState` is created with a unique `session_id`.
 3. The session event log is opened at `.runs/<session-id>/events.jsonl`.
 4. The REPL loop begins:
-   a. Display `oma>` prompt and read one line of input.
+   a. Display `oka>` prompt and read one line of input.
    b. If input is `done`, `exit`, `quit`, or EOF: emit `session_end` event and exit.
    c. Emit `turn_start` event.
    d. Call `plan_turn()` with the instruction, current state, tool registry, and LLM client.
@@ -151,25 +151,25 @@ Any tool with `mutating=True` must display a confirmation prompt and receive `y`
 ```text
 $ uv run oka session
 
-oma> create a keynote deck named demo
+oka> create a keynote deck named demo
 assistant> Plan:
   1. demo.create_document name=demo
 Apply? [y/N] y
 > Created document "demo" with 0 slides.
 
-oma> add a title slide called Open Keynote Agent
+oka> add a title slide called Open Keynote Agent
 assistant> Plan:
   1. demo.add_slide kind=title title="Open Keynote Agent"
 Apply? [y/N] y
 > Added slide 1: title "Open Keynote Agent".
 
-oma> export it as PDF
+oka> export it as PDF
 assistant> Plan:
   1. demo.export_pdf
 Apply? [y/N] y
 > Exported to demo.pdf.
 
-oma> done
+oka> done
 ```
 
 ## Future Compatibility

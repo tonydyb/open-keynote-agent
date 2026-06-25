@@ -1,19 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git commit:*)",
-      "Bash(git add:*)",
-      "Bash(mkdir -p /Users/youbingding/develop/open-keynote-agent/openspec/changes/003-add-interactive-agent-runtime/specs)",
-      "Bash(xargs sed -i '' 's/open_mac_agent/open_keynote_agent/g')",
-      "Bash(uv sync *)",
-      "Bash(uv run *)",
-      "Bash(xargs sed -i '' 's/`oma session`/`oka session`/g')",
-      "Bash(xargs sed -i '' 's/`oma organize`/`oka organize`/g')",
-      "Bash(xargs sed -i '' 's/`oma ask`/`oka ask`/g')",
-      "Bash(xargs sed -i '' 's/uv run oma session/uv run oka session/g')"
-    ],
-    "additionalDirectories": [
-      "/Users/youbingding/develop/open-keynote-agent/openspec/changes/003-add-interactive-agent-runtime"
+      "Bash(*)"
     ]
   }
 }

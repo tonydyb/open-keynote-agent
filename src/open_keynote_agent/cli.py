@@ -9,6 +9,12 @@ from open_keynote_agent.llm.parser import load_llm_client_from_env, parse_natura
 from open_keynote_agent.organizer import build_organize_plan
 from open_keynote_agent.organizer import OrganizePlan
 from open_keynote_agent.runtime.session import create_run_session
+from open_keynote_agent.agent.executor import execute_plan
+from open_keynote_agent.agent.planner import PlanValidationError, plan_turn
+from open_keynote_agent.agent.registry import ToolRegistry
+from open_keynote_agent.agent.session import SessionState, Turn
+from open_keynote_agent.runtime.events import EventLog
+from open_keynote_agent.tools.demo import register_demo_tools
 
 app = typer.Typer(help="Open Keynote Agent CLI")
 console = Console()
@@ -196,6 +202,116 @@ def ask(
     })
 
     handle_plan(session=session, plan=plan, target_dir=target_dir, dry_run=dry_run)
+
+
+@app.command()
+def session(
+    no_confirm: bool = typer.Option(False, "--no-confirm", help="Skip confirmation prompts (for scripting/tests)."),
+) -> None:
+    """Start an interactive agent session."""
+    registry = ToolRegistry()
+    register_demo_tools(registry)
+
+    llm_client = load_llm_client_from_env()
+    state = SessionState()
+    log_path = Path(".runs") / state.session_id / "events.jsonl"
+    event_log = EventLog(log_path)
+
+    event_log.append("session_start", {"session_id": state.session_id})
+    console.print(f"[dim]Session {state.session_id}. Type 'done' to exit.[/]")
+
+    turn_index = 0
+    while True:
+        try:
+            instruction = typer.prompt("oka", prompt_suffix="> ")
+        except (EOFError, KeyboardInterrupt):
+            break
+
+        if instruction.strip().lower() in ("done", "exit", "quit", ""):
+            break
+
+        event_log.append("turn_start", {"turn_index": turn_index, "instruction": instruction})
+
+        try:
+            plan = plan_turn(instruction, state, registry, llm_client)
+        except PlanValidationError as exc:
+            console.print(f"[red]Plan error:[/] {exc}")
+            turn_index += 1
+            continue
+
+        event_log.append(
+            "plan_proposed",
+            {
+                "turn_index": turn_index,
+                "steps": [{"tool": s.tool, "args": s.args, "description": s.description} for s in plan.steps],
+            },
+        )
+
+        console.print("[bold]Plan:[/]")
+        for i, step in enumerate(plan.steps, 1):
+            console.print(f"  {i}. {step.description}")
+
+        if not plan.steps:
+            console.print("[yellow]No steps proposed.[/]")
+            turn_index += 1
+            continue
+
+        has_mutating = any(
+            (registry.get(s.tool) and registry.get(s.tool).mutating)  # type: ignore[union-attr]
+            for s in plan.steps
+        )
+
+        approved = True
+        if has_mutating and not no_confirm:
+            approved = typer.confirm("Apply?", default=False)
+
+        if approved:
+            event_log.append("plan_approved", {"turn_index": turn_index})
+            results = execute_plan(plan, registry, state)
+
+            observations: list[str] = []
+            for step_index, result in enumerate(results):
+                event_log.append(
+                    "tool_called",
+                    {"turn_index": turn_index, "step_index": step_index, "tool": result.tool, "args": result.args},
+                )
+                event_log.append(
+                    "tool_result",
+                    {
+                        "turn_index": turn_index,
+                        "step_index": step_index,
+                        "ok": result.ok,
+                        "output": result.output,
+                        "error": result.error,
+                        "observation": result.observation,
+                    },
+                )
+                if result.ok:
+                    console.print(f"[green]>[/] {result.observation}")
+                else:
+                    console.print(f"[red]Error:[/] {result.observation}")
+                observations.append(result.observation)
+
+            state.turns.append(
+                Turn(
+                    instruction=instruction,
+                    plan=plan,
+                    approved=True,
+                    results=results,
+                    observations=observations,
+                )
+            )
+        else:
+            event_log.append("plan_rejected", {"turn_index": turn_index})
+            console.print("[yellow]Skipped.[/]")
+            state.turns.append(
+                Turn(instruction=instruction, plan=plan, approved=False)
+            )
+
+        turn_index += 1
+
+    event_log.append("session_end", {"session_id": state.session_id, "turn_count": turn_index})
+    console.print("[dim]Session ended.[/]")
 
 
 if __name__ == "__main__":
