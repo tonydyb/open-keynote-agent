@@ -169,9 +169,9 @@ class TestScriptBuilders:
         assert "make new document" in s
 
     def test_add_slide_contains_master(self):
-        s = scripts.add_slide("Title, Content")
+        s = scripts.add_slide("Title & Bullets")
         assert "Keynote" in s
-        assert "Title, Content" in s
+        assert "Title & Bullets" in s
         assert "slide" in s.lower()
 
     def test_add_slide_escapes_master_name(self):
@@ -219,7 +219,7 @@ class TestScriptBuilders:
     def test_no_builder_contains_display_dialog(self):
         builders = [
             scripts.create_document("x"),
-            scripts.add_slide("Title Slide"),
+            scripts.add_slide("Title"),
             scripts.set_slide_title(1, "t"),
             scripts.set_slide_body(1, "b"),
             scripts.export_pdf("/tmp/x.pdf"),
@@ -267,13 +267,13 @@ class TestAddSlide:
         fake = FakeScriptRunner()
         result, state = _run_tool("keynote.add_slide", {"layout": "title"}, fake)
         assert result.ok is True
-        assert "Title Slide" in fake.calls[0]
+        assert "Title" in fake.calls[0]
 
     def test_valid_layout_title_body(self):
         fake = FakeScriptRunner()
         result, _ = _run_tool("keynote.add_slide", {"layout": "title_body"}, fake)
         assert result.ok is True
-        assert "Title, Content" in fake.calls[0]
+        assert "Title & Bullets" in fake.calls[0]
 
     def test_valid_layout_blank(self):
         fake = FakeScriptRunner()

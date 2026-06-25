@@ -25,7 +25,7 @@ def create_document(name: str) -> str:
 def add_slide(master_name: str) -> str:
     """Return an AppleScript that adds a new slide at the end of the front document.
 
-    master_name is the resolved AppleScript master name (e.g. "Title, Content").
+    master_name is the resolved AppleScript master name (e.g. "Title & Bullets").
     """
     safe_master = applescript_string(master_name)
     return (

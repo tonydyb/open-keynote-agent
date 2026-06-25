@@ -8,8 +8,8 @@ from open_keynote_agent.applescript import scripts
 from open_keynote_agent.applescript.runner import ScriptRunner
 
 _LAYOUT_MAP: dict[str, str] = {
-    "title": "Title Slide",
-    "title_body": "Title, Content",
+    "title": "Title",
+    "title_body": "Title & Bullets",
     "blank": "Blank",
 }
 

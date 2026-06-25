@@ -101,8 +101,8 @@ The executor catches `RuntimeError` and records it as `ToolResult(ok=False)`. No
 
 | `layout` value | AppleScript master name |
 |---|---|
-| `title` | `"Title Slide"` |
-| `title_body` | `"Title, Content"` |
+| `title` | `"Title"` |
+| `title_body` | `"Title & Bullets"` |
 | `blank` | `"Blank"` |
 
 An unrecognised `layout` raises `ValueError` (recorded as `ToolResult.ok=False` by the executor). The `scripts.add_slide` builder receives the resolved master name, not the raw enum value.

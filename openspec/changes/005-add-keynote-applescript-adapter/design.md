@@ -101,8 +101,8 @@ def _make_create_document(runner: ScriptRunner):
 
 | `layout` value | AppleScript master name |
 |---|---|
-| `title` | `"Title Slide"` |
-| `title_body` | `"Title, Content"` |
+| `title` | `"Title"` |
+| `title_body` | `"Title & Bullets"` |
 | `blank` | `"Blank"` |
 
 The handler must validate `layout` against this enum and raise `ValueError` (which the executor records as `ToolResult.ok=False`) before running any AppleScript if the value is not recognised. The `scripts.add_slide` builder receives the resolved AppleScript master name, not the raw `layout` value.
