@@ -4,7 +4,7 @@
 
 `Open Keynote Agent` is an open-source learning project for building a macOS agent focused on creating, editing, verifying, and exporting Apple Keynote presentations through natural-language instructions.
 
-The project slug is `open-keynote-agent`. The current repository and Python package may still use earlier `open-mac-agent` / `open_mac_agent` names until a later mechanical rename.
+The project slug is `open-keynote-agent`. The Python package is `open_keynote_agent` and the CLI command is `oka`.
 
 ## Principles
 

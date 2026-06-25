@@ -34,7 +34,7 @@ But it keeps the product boundary narrow enough to build and test.
 
 - Do not implement Keynote automation yet.
 - Do not introduce AppleScript, JXA, Accessibility API, or GUI automation in this change.
-- Do not rename the package, distribution name, CLI command, or git repository yet.
+- Did not rename the package, distribution name, CLI command, or git repository (done in change 003).
 - Do not remove the existing file organizer implementation.
 
 ## User Impact

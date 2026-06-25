@@ -4,12 +4,12 @@ import os
 
 from dotenv import load_dotenv
 
-from open_mac_agent.llm.base import LLMClient
-from open_mac_agent.llm.bedrock import BedrockConverseClient
-from open_mac_agent.llm.fake import FakeLLMClient
-from open_mac_agent.llm.gemini import GeminiClient
-from open_mac_agent.llm.openai import OpenAIClient
-from open_mac_agent.llm.schema import LLMPlanResponse, validate_llm_plan
+from open_keynote_agent.llm.base import LLMClient
+from open_keynote_agent.llm.bedrock import BedrockConverseClient
+from open_keynote_agent.llm.fake import FakeLLMClient
+from open_keynote_agent.llm.gemini import GeminiClient
+from open_keynote_agent.llm.openai import OpenAIClient
+from open_keynote_agent.llm.schema import LLMPlanResponse, validate_llm_plan
 
 
 class UnsupportedProviderError(ValueError):

@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-import open_mac_agent.cli as cli_module
-from open_mac_agent.cli import app
-from open_mac_agent.llm.fake import FakeLLMClient
+import open_keynote_agent.cli as cli_module
+from open_keynote_agent.cli import app
+from open_keynote_agent.llm.fake import FakeLLMClient
 
 
 runner = CliRunner()

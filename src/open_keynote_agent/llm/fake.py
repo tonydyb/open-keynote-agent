@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from open_mac_agent.llm.base import LLMClient
+from open_keynote_agent.llm.base import LLMClient
 
 
 class FakeLLMClient(LLMClient):

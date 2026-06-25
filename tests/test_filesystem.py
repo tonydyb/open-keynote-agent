@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from open_mac_agent.filesystem import move_files
-from open_mac_agent.organizer import OrganizePlan, MoveOperation
+from open_keynote_agent.filesystem import move_files
+from open_keynote_agent.organizer import OrganizePlan, MoveOperation
 
 
 def test_move_files_moves_files(tmp_path: Path) -> None:

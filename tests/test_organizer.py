@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from open_mac_agent.organizer import (
+from open_keynote_agent.organizer import (
     DEFAULT_CATEGORY,
     OrganizePlan,
     build_organize_plan,

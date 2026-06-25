@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from open_mac_agent.llm.base import LLMClient
-from open_mac_agent.llm.json_utils import parse_json_object
+from open_keynote_agent.llm.base import LLMClient
+from open_keynote_agent.llm.json_utils import parse_json_object
 
 SYSTEM_PROMPT = "Return only valid JSON matching the requested schema. Do not include any extra text."
 

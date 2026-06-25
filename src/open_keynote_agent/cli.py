@@ -4,13 +4,13 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
-from open_mac_agent.filesystem import move_files
-from open_mac_agent.llm.parser import load_llm_client_from_env, parse_natural_language_request
-from open_mac_agent.organizer import build_organize_plan
-from open_mac_agent.organizer import OrganizePlan
-from open_mac_agent.runtime.session import create_run_session
+from open_keynote_agent.filesystem import move_files
+from open_keynote_agent.llm.parser import load_llm_client_from_env, parse_natural_language_request
+from open_keynote_agent.organizer import build_organize_plan
+from open_keynote_agent.organizer import OrganizePlan
+from open_keynote_agent.runtime.session import create_run_session
 
-app = typer.Typer(help="Open Mac Agent CLI")
+app = typer.Typer(help="Open Keynote Agent CLI")
 console = Console()
 
 
@@ -109,14 +109,14 @@ def main(ctx: typer.Context):
 
 @app.command()
 def version():
-    """Show the open-mac-agent version."""
-    console.print("open-mac-agent 0.1.0")
+    """Show the open-keynote-agent version."""
+    console.print("open-keynote-agent 0.1.0")
 
 
 @app.command()
 def hello():
     """Print a simple confirmation message."""
-    console.print("open-mac-agent is installed. Use `oma --help` for available commands.")
+    console.print("open-keynote-agent is installed. Use `oka --help` for available commands.")
 
 
 @app.command()
@@ -132,7 +132,7 @@ def organize(
     if not dry_run and not apply:
         dry_run = True
 
-    session = create_run_session(folder, "oma organize")
+    session = create_run_session(folder, "oka organize")
     session.write_request({
         "command": "organize",
         "target_dir": str(folder.resolve()),
@@ -169,7 +169,7 @@ def ask(
     target_dir = organize_request.target_dir.resolve()
     dry_run = not apply or organize_request.dry_run
 
-    session = create_run_session(target_dir, "oma ask")
+    session = create_run_session(target_dir, "oka ask")
     session.write_request({
         "command": "ask",
         "request": request,

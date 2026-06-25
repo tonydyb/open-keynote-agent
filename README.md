@@ -4,7 +4,7 @@ An open-source macOS agent for creating and editing Apple Keynote presentations 
 
 Project slug: `open-keynote-agent`.
 
-Note: the current Python package and CLI still use the earlier `open_mac_agent` / `oma` names until a later mechanical rename.
+Note: the current Python package and CLI still use the earlier `open_keynote_agent` / `oka` names until a later mechanical rename.
 
 ## Current Milestone
 
@@ -30,25 +30,25 @@ uv sync
 2. View the CLI help:
 
 ```bash
-uv run oma --help
+uv run oka --help
 ```
 
 3. Run the version command:
 
 ```bash
-uv run oma version
+uv run oka version
 ```
 
 4. Preview deterministic file organization:
 
 ```bash
-uv run oma organize ./demo --dry-run
+uv run oka organize ./demo --dry-run
 ```
 
 5. Preview natural-language file organization:
 
 ```bash
-uv run oma ask "Organize ./demo into PDFs and Images"
+uv run oka ask "Organize ./demo into PDFs and Images"
 ```
 
 This command requires `OMA_LLM_PROVIDER` to be set to `bedrock`, `openai`, or `gemini`. The `fake` provider is only for tests.
@@ -56,7 +56,7 @@ This command requires `OMA_LLM_PROVIDER` to be set to `bedrock`, `openai`, or `g
 6. Apply a natural-language plan after confirmation:
 
 ```bash
-uv run oma ask "Organize ./demo into PDFs and Images" --apply
+uv run oka ask "Organize ./demo into PDFs and Images" --apply
 ```
 
 ## Environment
@@ -92,7 +92,7 @@ Natural-language requests default to dry-run. File moves only happen when apply 
 
 ## Safety Notes
 
-- `oma organize` and `oma ask` default to previewing the move plan without changing files.
+- `oka organize` and `oka ask` default to previewing the move plan without changing files.
 - `--apply` still requires an explicit confirmation prompt before any file is moved.
 - Existing destination files are never overwritten; conflicting moves are skipped and recorded.
 - File operations are limited to regular files inside the target directory.

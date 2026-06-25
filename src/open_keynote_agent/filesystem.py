@@ -2,7 +2,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from open_mac_agent.organizer import OrganizePlan, SkippedFile
+from open_keynote_agent.organizer import OrganizePlan, SkippedFile
 
 
 class MoveResult(BaseModel):

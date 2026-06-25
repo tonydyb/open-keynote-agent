@@ -59,13 +59,13 @@ Documentation should use:
 - Product name: `Open Keynote Agent`
 - Project slug: `open-keynote-agent`
 
-This change does not rename:
+This change did not rename:
 
 - Python package: `open_mac_agent`
 - CLI command: `oma`
 - repository directory
 
-Those can be handled in a later mechanical rename if desired.
+Those were handled in change 003 (`rename-package-and-cli`).
 
 ## Safety Principles
 

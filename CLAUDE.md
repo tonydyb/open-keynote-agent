@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Open Keynote Agent** — an open-source macOS agent for creating and editing Apple Keynote presentations through natural-language, step-by-step workflows.
 
-Project slug: `open-keynote-agent`. The Python package (`open_mac_agent`), CLI command (`oma`), and repository directory have not been renamed yet; that is a later mechanical change.
+Project slug: `open-keynote-agent`. Python package: `open_keynote_agent`. CLI command: `oka`.
 
 ## Current State
 
@@ -51,10 +51,10 @@ uv run pytest                           # run all tests
 uv run pytest tests/test_filesystem.py  # run a single test file
 uv run pytest -k "test_move_files"      # run tests matching a name pattern
 uv run ruff check .                     # lint
-uv run oma --help                       # CLI help
-uv run oma organize <folder> --dry-run
-uv run oma organize <folder> --apply
-uv run oma ask "organize ~/Downloads into PDFs and Images"
+uv run oka --help                       # CLI help
+uv run oka organize <folder> --dry-run
+uv run oka organize <folder> --apply
+uv run oka ask "organize ~/Downloads into PDFs and Images"
 ```
 
 All tests run without cloud credentials or API keys — the default `OMA_LLM_PROVIDER=fake` is used.

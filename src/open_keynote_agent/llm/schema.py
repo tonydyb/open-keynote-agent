@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, field_validator
 
-from open_mac_agent.organizer import CATEGORY_EXTENSIONS, DEFAULT_CATEGORY
+from open_keynote_agent.organizer import CATEGORY_EXTENSIONS, DEFAULT_CATEGORY
 
 
 SUPPORTED_CATEGORIES = set(CATEGORY_EXTENSIONS) | {DEFAULT_CATEGORY}

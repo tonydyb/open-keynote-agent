@@ -3,14 +3,14 @@ requires = ["setuptools>=65.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "open-mac-agent"
+name = "open-keynote-agent"
 version = "0.1.0"
-description = "A macOS-first AI agent CLI for local file organization."
+description = "An open-source macOS agent for creating and editing Apple Keynote presentations."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Open Mac Agent" }]
-keywords = ["macOS", "agent", "CLI", "AI", "file organizer"]
+authors = [{ name = "Open Keynote Agent" }]
+keywords = ["macOS", "Keynote", "agent", "CLI", "AI"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: MIT License",
@@ -29,4 +29,4 @@ gemini = ["google-genai>=0.1.0"]
 dev = ["pytest>=9.0.0", "ruff>=0.15.0"]
 
 [project.scripts]
-oma = "open_mac_agent.cli:app"
+oka = "open_keynote_agent.cli:app"

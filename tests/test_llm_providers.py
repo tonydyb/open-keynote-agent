@@ -1,7 +1,7 @@
 import pytest
 
-from open_mac_agent.llm.fake import FakeLLMClient
-from open_mac_agent.llm.parser import UnsupportedProviderError, load_llm_client_from_env
+from open_keynote_agent.llm.fake import FakeLLMClient
+from open_keynote_agent.llm.parser import UnsupportedProviderError, load_llm_client_from_env
 
 
 @pytest.fixture(autouse=True)

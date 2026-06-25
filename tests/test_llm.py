@@ -1,8 +1,8 @@
 import pytest
 
-from open_mac_agent.llm.fake import FakeLLMClient
-from open_mac_agent.llm.parser import UnsupportedProviderError, load_llm_client_from_env, parse_natural_language_request
-from open_mac_agent.llm.schema import OrganizeRequest
+from open_keynote_agent.llm.fake import FakeLLMClient
+from open_keynote_agent.llm.parser import UnsupportedProviderError, load_llm_client_from_env, parse_natural_language_request
+from open_keynote_agent.llm.schema import OrganizeRequest
 
 
 @pytest.fixture(autouse=True)
