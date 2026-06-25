@@ -37,6 +37,30 @@
       "justMyCode": true,
       "python": "${workspaceFolder}/.venv/bin/python",
       "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "OKA: session",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "open_keynote_agent.cli",
+      "args": ["session"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "OKA: session no-confirm",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "open_keynote_agent.cli",
+      "args": ["session", "--no-confirm"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "envFile": "${workspaceFolder}/.env"
     }
   ]
 }
