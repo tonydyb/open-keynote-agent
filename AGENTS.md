@@ -47,7 +47,7 @@ Copy `.env.example` to `.env` and set `OMA_LLM_PROVIDER` to `fake`, `bedrock`, `
 ## Commands
 
 ```bash
-uv run pytest                           # run all tests
+uv run pytest                           # run all tests (no Keynote required)
 uv run pytest tests/test_filesystem.py  # run a single test file
 uv run pytest -k "test_move_files"      # run tests matching a name pattern
 uv run ruff check .                     # lint
@@ -55,9 +55,17 @@ uv run oka --help                       # CLI help
 uv run oka organize <folder> --dry-run
 uv run oka organize <folder> --apply
 uv run oka ask "organize ~/Downloads into PDFs and Images"
+uv run oka session                      # interactive session with demo tools
+uv run oka session --tools demo         # same as default
+uv run oka session --tools keynote      # real Keynote via AppleScript (macOS only)
+RUN_KEYNOTE_INTEGRATION=1 uv run python -m pytest -m keynote_integration  # Keynote smoke test
 ```
 
 All tests run without cloud credentials or API keys — the default `OMA_LLM_PROVIDER=fake` is used.
+
+Unit tests do not require Keynote, `osascript`, macOS GUI access, or special permissions. The `keynote_integration` marker gates tests that call real Keynote; they are skipped unless `RUN_KEYNOTE_INTEGRATION=1` is set.
+
+When running `oka session --tools keynote`, macOS may prompt for permission to control Keynote via Automation. Grant it when asked.
 
 ## Architecture (File Organizer Milestone)
 

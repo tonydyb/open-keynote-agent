@@ -99,11 +99,31 @@ Natural-language requests default to dry-run. File moves only happen when apply 
 - Tests use `FakeLLMClient` and do not require cloud credentials, API keys, or network access.
 - Each run writes audit artifacts under `.runs/<run-id>/`.
 
+## Keynote Adapter (change 005)
+
+`oka session` now supports two tool sets:
+
+```bash
+oka session                   # default: demo.* tools (no Keynote required)
+oka session --tools demo      # same as default
+oka session --tools keynote   # real Keynote automation via AppleScript
+```
+
+When `--tools keynote` is selected, macOS may prompt for permission to control Keynote via Automation. Grant the permission when asked.
+
+Integration tests (skipped by default) require macOS, Keynote installed, and Automation permission:
+
+```bash
+RUN_KEYNOTE_INTEGRATION=1 uv run python -m pytest -m keynote_integration
+```
+
+Normal tests do not require Keynote, `osascript`, macOS GUI access, or any special permissions.
+
 ## Keynote Roadmap
 
 The next project direction is an interactive Keynote agent:
 
-1. Add an interactive agent runtime with session state, planner, executor, tool registry, observations, and step-by-step logs.
-2. Add Keynote tools using AppleScript or JXA for creating documents, adding slides, editing text, inserting images, and exporting PDF.
+1. ✅ Interactive agent runtime with session state, planner, executor, tool registry, observations, and step-by-step logs.
+2. ✅ Keynote AppleScript adapter (`keynote.*` tools, `oka session --tools keynote`).
 3. Add verification for generated `.key` and PDF outputs.
 4. Expose session events through an API suitable for a future Studio UI.

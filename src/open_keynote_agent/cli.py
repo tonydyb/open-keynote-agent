@@ -14,7 +14,9 @@ from open_keynote_agent.agent.planner import PlanValidationError, plan_turn
 from open_keynote_agent.agent.registry import ToolRegistry
 from open_keynote_agent.agent.session import SessionState, Turn
 from open_keynote_agent.runtime.events import EventLog
+from open_keynote_agent.applescript.runner import OsascriptRunner
 from open_keynote_agent.tools.demo import register_demo_tools
+from open_keynote_agent.tools.keynote import register_keynote_tools
 
 app = typer.Typer(help="Open Keynote Agent CLI")
 console = Console()
@@ -207,10 +209,18 @@ def ask(
 @app.command()
 def session(
     no_confirm: bool = typer.Option(False, "--no-confirm", help="Skip confirmation prompts (for scripting/tests)."),
+    tools: str = typer.Option("demo", "--tools", help="Tool set to register: 'demo' (default) or 'keynote'."),
 ) -> None:
     """Start an interactive agent session."""
+    if tools not in ("demo", "keynote"):
+        raise typer.BadParameter(f"Invalid --tools value {tools!r}. Valid values: demo, keynote.")
+
     registry = ToolRegistry()
-    register_demo_tools(registry)
+    if tools == "keynote":
+        console.print("[yellow]Note: macOS may prompt for permission to control Keynote via Automation.[/]")
+        register_keynote_tools(registry, OsascriptRunner())
+    else:
+        register_demo_tools(registry)
 
     llm_client = load_llm_client_from_env()
     state = SessionState()
