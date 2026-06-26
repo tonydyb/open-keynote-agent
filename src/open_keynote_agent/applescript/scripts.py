@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 
+def _n(value: float) -> str:
+    """Format a number for AppleScript: emit as int when it is a whole number."""
+    return str(int(value)) if isinstance(value, float) and value == int(value) else str(value)
+
+
 def applescript_string(value: str) -> str:
     """Escape value for safe interpolation into an AppleScript double-quoted string literal."""
     return value.replace("\\", "\\\\").replace('"', '\\"')
@@ -107,6 +112,114 @@ def export_pdf(posix_path: str) -> str:
     return (
         'tell application "Keynote"\n'
         f'    export front document to POSIX file "{safe_path}" as PDF\n'
+        "end tell"
+    )
+
+
+def add_text_box(
+    slide: int,
+    object_id: str,
+    text: str,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    font_size: float | None = None,
+    font_color: tuple[int, int, int] | None = None,
+) -> str:
+    """Return AppleScript that creates a text box and returns its text-item index."""
+    applescript_string(object_id)  # object_id is tracked locally; Keynote has no writable object name
+    safe_text = applescript_string(text)
+    lines = [
+        'tell application "Keynote"',
+        "    tell front document",
+        f"        tell slide {slide}",
+        # Keynote rejects properties records on text item creation; create bare then set each property.
+        "            set textItem to make new text item",
+        f'            set object text of textItem to "{safe_text}"',
+        f"            set position of textItem to {{{_n(x)}, {_n(y)}}}",
+        f"            set width of textItem to {_n(width)}",
+        f"            set height of textItem to {_n(height)}",
+    ]
+    if font_size is not None:
+        lines.append(
+            f"            set size of every paragraph of object text of textItem to {_n(font_size)}"
+        )
+    if font_color is not None:
+        r, g, b = font_color
+        lines.append(
+            f"            set text color of every paragraph of object text of textItem to {{{r}, {g}, {b}}}"
+        )
+    lines += [
+        "            return count of text items",
+        "        end tell",
+        "    end tell",
+        "end tell",
+    ]
+    return "\n".join(lines)
+
+
+def add_shape(
+    slide: int,
+    object_id: str,
+    shape_type: str,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    fill_color: tuple[int, int, int] | None = None,
+) -> str:
+    """Return AppleScript that creates a default shape and returns its shape index.
+
+    shape_type is retained for API clarity but Keynote does not expose a writable
+    shape type property in its current AppleScript dictionary.
+    """
+    applescript_string(object_id)  # object_id is tracked locally; Keynote has no writable object name
+    if fill_color is not None:
+        raise ValueError("fill_color is not supported by Keynote AppleScript in this adapter yet")
+    lines = [
+        'tell application "Keynote"',
+        "    tell front document",
+        f"        tell slide {slide}",
+        "            set shapeItem to make new shape",
+        f"            set position of shapeItem to {{{_n(x)}, {_n(y)}}}",
+        f"            set width of shapeItem to {_n(width)}",
+        f"            set height of shapeItem to {_n(height)}",
+    ]
+    lines += [
+        "            return count of shapes",
+        "        end tell",
+        "    end tell",
+        "end tell",
+    ]
+    return "\n".join(lines)
+
+
+def move_object(slide: int, apple_class: str, apple_index: int, x: float, y: float) -> str:
+    """Return AppleScript that moves a tracked object on the given slide to (x, y)."""
+    return (
+        'tell application "Keynote"\n'
+        "    tell front document\n"
+        f"        tell slide {slide}\n"
+        f"            set targetItem to {apple_class} {apple_index}\n"
+        f"            set position of targetItem to {{{_n(x)}, {_n(y)}}}\n"
+        "        end tell\n"
+        "    end tell\n"
+        "end tell"
+    )
+
+
+def resize_object(slide: int, apple_class: str, apple_index: int, width: float, height: float) -> str:
+    """Return AppleScript that resizes a tracked object on the given slide."""
+    return (
+        'tell application "Keynote"\n'
+        "    tell front document\n"
+        f"        tell slide {slide}\n"
+        f"            set targetItem to {apple_class} {apple_index}\n"
+        f"            set width of targetItem to {_n(width)}\n"
+        f"            set height of targetItem to {_n(height)}\n"
+        "        end tell\n"
+        "    end tell\n"
         "end tell"
     )
 

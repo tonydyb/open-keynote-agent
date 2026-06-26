@@ -47,4 +47,4 @@ class FakeScriptRunner:
         self.calls.append(script)
         if script in self.responses:
             return self.responses[script]
-        return ScriptRunResult(stdout="", stderr="", returncode=0)
+        return ScriptRunResult(stdout="1", stderr="", returncode=0)

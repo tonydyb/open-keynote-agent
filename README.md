@@ -141,6 +141,11 @@ the adapter resolves them to the actual Keynote master slide name at runtime.
 | `keynote.set_slide_body` | yes | Set the body text of a slide (1-indexed). |
 | `keynote.export_pdf` | yes | Export the front document to PDF. |
 | `keynote.get_document_info` | no | Return document name and slide count. |
+| `keynote.add_text_box` | yes | Add a text box with optional font size and color. |
+| `keynote.add_emoji_text` | yes | Add a large emoji as a text object. |
+| `keynote.add_shape` | yes | Add an MVP default rectangle shape. |
+| `keynote.move_object` | yes | Move a tracked object to a new position. |
+| `keynote.resize_object` | yes | Resize a tracked object. |
 
 ### Integration tests
 
@@ -159,5 +164,6 @@ The next project direction is an interactive Keynote agent:
 1. ✅ Interactive agent runtime with session state, planner, executor, tool registry, observations, and step-by-step logs.
 2. ✅ Keynote AppleScript adapter (`keynote.*` tools, `oka session --tools keynote`).
 3. ✅ Theme and layout discovery (`keynote.list_themes`, `keynote.list_layouts`, `keynote.resolve_layout`).
-4. Add verification for generated `.key` and PDF outputs.
+4. ✅ Object tools (`keynote.add_text_box`, `keynote.add_emoji_text`, `keynote.add_shape`, `keynote.move_object`, `keynote.resize_object`).
+5. Add verification for generated `.key` and PDF outputs.
 5. Expose session events through an API suitable for a future Studio UI.

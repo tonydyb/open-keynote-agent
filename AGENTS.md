@@ -81,6 +81,15 @@ When running `oka session --tools keynote`, macOS may prompt for permission to c
 - `keynote.add_slide` — reads cached `context["keynote"]["layouts"]`; fetches via runner if absent
 - `Parchment` is the recommended built-in storybook theme
 
+### Object tools (change 007)
+- `applescript/objects.py` — `validate_object_id`, `generate_object_id`, `commit_object_id`, `validate_geometry`, `hex_to_rgb_tuple`, `SHAPE_MAP`
+- Object IDs: `^[a-z][a-z0-9_]{0,63}$`; auto-generated as `slide_{slide:02d}_{kind}_{n}`
+- `object_id` is local session metadata only; Keynote text/shape objects are tracked by stored `apple_class` + `apple_index`
+- `scripts.add_text_box` / `scripts.add_shape` return created-object collection indexes; `scripts.move_object` / `scripts.resize_object` use the stored AppleScript class/index reference
+- `keynote.add_emoji_text` calls `scripts.add_text_box` internally (no separate AppleScript builder)
+- Context: `context["keynote"]["objects"][oid]` stores geometry plus `apple_class`/`apple_index`; `context["keynote"]["slides"]["N"]["objects"]` uses string slide keys
+- Object context is a best-effort local mirror; manual Keynote edits outside the agent will not be reflected
+
 ## Architecture (File Organizer Milestone)
 
 The data flow is: **CLI → organizer (plan) → filesystem (execute) → session (log)**

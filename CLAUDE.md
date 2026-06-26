@@ -82,6 +82,15 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 - `keynote.add_slide` — discovery-aware: reads `context["keynote"]["layouts"]` if present (no `list_layouts` call); fetches and caches layouts if absent
 - `Parchment` is the recommended built-in storybook theme when available
 
+### Object tools (change 007)
+- `applescript/objects.py` — `validate_object_id`, `generate_object_id`, `commit_object_id`, `validate_geometry`, `hex_to_rgb_tuple`, `SHAPE_MAP`; keep all non-builder utilities here, not in `scripts.py`
+- Object IDs follow `^[a-z][a-z0-9_]{0,63}$`; generated as `slide_{slide:02d}_{kind}_{n}` where kind is `text_box`, `emoji`, or `shape`
+- `object_id` is local session metadata only; Keynote text/shape objects are tracked by stored `apple_class` + `apple_index`
+- `scripts.add_text_box` / `scripts.add_shape` return created-object collection indexes; `scripts.move_object` / `scripts.resize_object` use the stored AppleScript class/index reference
+- `keynote.add_emoji_text` calls `scripts.add_text_box(text=emoji, ...)` — no separate builder
+- Context schema: `context["keynote"]["objects"][object_id]` stores `{object_id, slide, type, apple_class, apple_index, x, y, width, height, ...}`; `context["keynote"]["slides"]["N"]["objects"]` is the per-slide index using **string** keys
+- Context updates are success-only: registry is never mutated when the runner returns a failure
+
 ## Architecture (File Organizer Milestone)
 
 The data flow is: **CLI → organizer (plan) → filesystem (execute) → session (log)**

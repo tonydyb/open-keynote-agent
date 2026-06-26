@@ -20,6 +20,13 @@ from open_keynote_agent.agent.registry import ToolRegistry
 from open_keynote_agent.agent.session import Plan, ProposedToolCall, SessionState
 from open_keynote_agent.applescript import scripts
 from open_keynote_agent.applescript.layout import _parse_newline_list, resolve_layout_name
+from open_keynote_agent.applescript.objects import (
+    commit_object_id,
+    generate_object_id,
+    hex_to_rgb_tuple,
+    validate_geometry,
+    validate_object_id,
+)
 from open_keynote_agent.applescript.runner import (
     FakeScriptRunner,
     OsascriptRunner,
@@ -70,7 +77,7 @@ class TestFakeScriptRunner:
         fake = FakeScriptRunner()
         result = fake.run("anything")
         assert result.ok is True
-        assert result.stdout == ""
+        assert result.stdout == "1"
         assert result.stderr == ""
         assert result.returncode == 0
 
@@ -85,7 +92,7 @@ class TestFakeScriptRunner:
         fake = FakeScriptRunner(responses={"other": configured})
         result = fake.run("unmatched")
         assert result.ok is True
-        assert result.stdout == ""
+        assert result.stdout == "1"
 
     def test_error_response(self):
         error = ScriptRunResult(stdout="", stderr="oops", returncode=1)
@@ -698,6 +705,713 @@ class TestGetDocumentInfo:
 
 
 # ---------------------------------------------------------------------------
+# Object utilities (objects.py)
+# ---------------------------------------------------------------------------
+
+class TestValidateObjectId:
+    def test_valid_ids(self):
+        for oid in ("a", "slide_01_text_box_1", "abc123", "z" * 64):
+            validate_object_id(oid)  # must not raise
+
+    def test_rejects_uppercase(self):
+        with pytest.raises(ValueError):
+            validate_object_id("MyObject")
+
+    def test_rejects_leading_digit(self):
+        with pytest.raises(ValueError):
+            validate_object_id("1abc")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(ValueError):
+            validate_object_id("a" + "b" * 64)  # 65 chars total
+
+    def test_rejects_empty(self):
+        with pytest.raises(ValueError):
+            validate_object_id("")
+
+    def test_rejects_spaces(self):
+        with pytest.raises(ValueError):
+            validate_object_id("my object")
+
+
+class TestGenerateObjectId:
+    def test_generates_first_id(self):
+        ctx: dict = {}
+        oid = generate_object_id(1, "text_box", ctx)
+        assert oid == "slide_01_text_box_1"
+
+    def test_increments_counter(self):
+        ctx: dict = {}
+        oid1 = generate_object_id(1, "text_box", ctx)
+        commit_object_id(1, "text_box", ctx)
+        oid2 = generate_object_id(1, "text_box", ctx)
+        commit_object_id(1, "text_box", ctx)
+        assert oid1 == "slide_01_text_box_1"
+        assert oid2 == "slide_01_text_box_2"
+
+    def test_different_kinds_independent(self):
+        ctx: dict = {}
+        t = generate_object_id(1, "text_box", ctx)
+        e = generate_object_id(1, "emoji", ctx)
+        assert t == "slide_01_text_box_1"
+        assert e == "slide_01_emoji_1"
+
+    def test_slide_zero_padded(self):
+        ctx: dict = {}
+        oid = generate_object_id(8, "shape", ctx)
+        assert oid == "slide_08_shape_1"
+
+    def test_stores_counters_in_context(self):
+        ctx: dict = {}
+        generate_object_id(2, "text_box", ctx)
+        commit_object_id(2, "text_box", ctx)
+        assert ctx["keynote"]["object_counters"]["slide_02_text_box"] == 1
+
+
+class TestValidateGeometry:
+    def test_valid(self):
+        validate_geometry(1, 0, 0, 100, 50)  # must not raise
+
+    def test_slide_zero_fails(self):
+        with pytest.raises(ValueError, match="slide"):
+            validate_geometry(0, 0, 0, 100, 50)
+
+    def test_negative_x_fails(self):
+        with pytest.raises(ValueError, match="x"):
+            validate_geometry(1, -1, 0, 100, 50)
+
+    def test_negative_y_fails(self):
+        with pytest.raises(ValueError, match="y"):
+            validate_geometry(1, 0, -1, 100, 50)
+
+    def test_zero_width_fails(self):
+        with pytest.raises(ValueError, match="width"):
+            validate_geometry(1, 0, 0, 0, 50)
+
+    def test_zero_height_fails(self):
+        with pytest.raises(ValueError, match="height"):
+            validate_geometry(1, 0, 0, 100, 0)
+
+    def test_slide_exceeds_count_fails(self):
+        with pytest.raises(ValueError, match="slide_count"):
+            validate_geometry(5, 0, 0, 100, 50, slide_count=3)
+
+    def test_slide_equal_count_ok(self):
+        validate_geometry(3, 0, 0, 100, 50, slide_count=3)
+
+
+class TestHexToRgbTuple:
+    def test_white(self):
+        assert hex_to_rgb_tuple("#FFFFFF") == (65535, 65535, 65535)
+
+    def test_black(self):
+        assert hex_to_rgb_tuple("#000000") == (0, 0, 0)
+
+    def test_known_color(self):
+        r, g, b = hex_to_rgb_tuple("#F6A04D")
+        assert r == round(0xF6 * 65535 / 255)
+        assert g == round(0xA0 * 65535 / 255)
+        assert b == round(0x4D * 65535 / 255)
+
+    def test_rejects_no_hash(self):
+        with pytest.raises(ValueError):
+            hex_to_rgb_tuple("FFFFFF")
+
+    def test_rejects_short(self):
+        with pytest.raises(ValueError):
+            hex_to_rgb_tuple("#FFF")
+
+    def test_rejects_invalid_hex_chars(self):
+        with pytest.raises(ValueError):
+            hex_to_rgb_tuple("#GGGGGG")
+
+
+# ---------------------------------------------------------------------------
+# Object AppleScript builders
+# ---------------------------------------------------------------------------
+
+class TestAddTextBoxBuilder:
+    def test_contains_keynote_and_returns_index(self):
+        s = scripts.add_text_box(1, "my_obj", "Hello", 10, 20, 200, 50)
+        assert "Keynote" in s
+        assert "return count of text items" in s
+        assert "Hello" in s
+
+    def test_does_not_use_keynote_object_name(self):
+        s = scripts.add_text_box(1, "my_obj", "x", 0, 0, 100, 50)
+        assert "object name" not in s
+        assert "set name of" not in s
+
+    def test_font_size_applied_to_paragraph(self):
+        s = scripts.add_text_box(1, "o", "x", 0, 0, 100, 50, font_size=64)
+        assert "every paragraph of object text" in s
+        assert "64" in s
+
+    def test_font_color_applied_to_paragraph(self):
+        s = scripts.add_text_box(1, "o", "x", 0, 0, 100, 50, font_color=(65535, 0, 0))
+        assert "text color" in s
+        assert "every paragraph of object text" in s
+        assert "65535" in s
+
+    def test_no_font_color_when_none(self):
+        s = scripts.add_text_box(1, "o", "x", 0, 0, 100, 50)
+        assert "text color" not in s
+
+    def test_escapes_text(self):
+        s = scripts.add_text_box(1, "o", 'He said "hi"', 0, 0, 100, 50)
+        assert '\\"' in s
+
+    def test_escapes_object_id(self):
+        s = scripts.add_text_box(1, 'id"bad', "x", 0, 0, 100, 50)
+        assert '\\"' not in s  # object_id stays local; Keynote object names are unsupported
+
+    def test_slide_number_present(self):
+        s = scripts.add_text_box(3, "o", "x", 0, 0, 100, 50)
+        assert "slide 3" in s
+
+
+class TestAddShapeBuilder:
+    def test_contains_keynote_and_returns_index(self):
+        s = scripts.add_shape(1, "my_shape", "rectangle", 0, 0, 200, 100)
+        assert "Keynote" in s
+        assert "return count of shapes" in s
+
+    def test_fill_color_rejected_by_builder(self):
+        with pytest.raises(ValueError):
+            scripts.add_shape(1, "s", "rectangle", 0, 0, 100, 50, fill_color=(65535, 0, 0))
+
+    def test_no_fill_color_when_none(self):
+        s = scripts.add_shape(1, "s", "rectangle", 0, 0, 100, 50)
+        assert "fill color" not in s
+
+
+class TestMoveObjectBuilder:
+    def test_uses_stored_class_and_index(self):
+        s = scripts.move_object(1, "text item", 7, 50, 80)
+        assert "text item 7" in s
+
+    def test_sets_position(self):
+        s = scripts.move_object(1, "text item", 7, 50, 80)
+        assert "position" in s
+        assert "50" in s
+        assert "80" in s
+
+
+class TestResizeObjectBuilder:
+    def test_uses_stored_class_and_index(self):
+        s = scripts.resize_object(1, "shape", 3, 300, 150)
+        assert "shape 3" in s
+
+    def test_sets_width_and_height(self):
+        s = scripts.resize_object(1, "text item", 7, 300, 150)
+        assert "300" in s
+        assert "150" in s
+
+
+# ---------------------------------------------------------------------------
+# keynote.add_text_box tool
+# ---------------------------------------------------------------------------
+
+class TestAddTextBoxTool:
+    def _ctx_with_layouts(self):
+        return {"keynote": {"layouts": _DEFAULT_LAYOUTS, "slide_count": 3}}
+
+    def test_success_updates_context(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_layouts()
+        result, state = _run_tool(
+            "keynote.add_text_box",
+            {"slide": 1, "text": "The End", "x": 100, "y": 200, "width": 400, "height": 80,
+             "object_id": "slide_01_the_end"},
+            fake, context=ctx,
+        )
+        assert result.ok is True
+        obj = state.context["keynote"]["objects"]["slide_01_the_end"]
+        assert obj["slide"] == 1
+        assert obj["type"] == "text_box"
+        assert obj["apple_class"] == "text item"
+        assert obj["apple_index"] == 1
+        assert obj["text"] == "The End"
+        assert obj["x"] == 100.0
+        assert obj["y"] == 200.0
+        assert obj["width"] == 400.0
+        assert obj["height"] == 80.0
+
+    def test_slides_index_uses_string_key(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_layouts()
+        _run_tool(
+            "keynote.add_text_box",
+            {"slide": 2, "text": "x", "x": 0, "y": 0, "width": 100, "height": 50,
+             "object_id": "slide_02_x"},
+            fake, context=ctx,
+        )
+        assert "2" in ctx["keynote"]["slides"]
+        assert "slide_02_x" in ctx["keynote"]["slides"]["2"]["objects"]
+
+    def test_auto_generates_object_id(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_layouts()
+        result, state = _run_tool(
+            "keynote.add_text_box",
+            {"slide": 1, "text": "Hi", "x": 0, "y": 0, "width": 100, "height": 50},
+            fake, context=ctx,
+        )
+        assert result.ok is True
+        assert result.output["object_id"] == "slide_01_text_box_1"
+
+    def test_duplicate_object_id_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        ctx: dict = {"keynote": {"layouts": _DEFAULT_LAYOUTS, "slide_count": 3,
+                                 "objects": {"myid": {"object_id": "myid", "slide": 1}}}}
+        result, _ = _run_tool(
+            "keynote.add_text_box",
+            {"slide": 1, "text": "x", "x": 0, "y": 0, "width": 100, "height": 50,
+             "object_id": "myid"},
+            fake, context=ctx,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_invalid_geometry_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_layouts()
+        result, _ = _run_tool(
+            "keynote.add_text_box",
+            {"slide": 0, "text": "x", "x": 0, "y": 0, "width": 100, "height": 50},
+            fake, context=ctx,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_slide_exceeds_count_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        ctx = {"keynote": {"layouts": _DEFAULT_LAYOUTS, "slide_count": 2}}
+        result, _ = _run_tool(
+            "keynote.add_text_box",
+            {"slide": 5, "text": "x", "x": 0, "y": 0, "width": 100, "height": 50},
+            fake, context=ctx,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_invalid_color_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_layouts()
+        result, _ = _run_tool(
+            "keynote.add_text_box",
+            {"slide": 1, "text": "x", "x": 0, "y": 0, "width": 100, "height": 50,
+             "font_color": "notacolor"},
+            fake, context=ctx,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_font_color_applied_in_script(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_layouts()
+        _run_tool(
+            "keynote.add_text_box",
+            {"slide": 1, "text": "x", "x": 0, "y": 0, "width": 100, "height": 50,
+             "font_color": "#FF0000"},
+            fake, context=ctx,
+        )
+        assert "text color" in fake.calls[0]
+        assert "every paragraph of object text" in fake.calls[0]
+
+    def test_script_does_not_use_object_name(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_layouts()
+        _run_tool(
+            "keynote.add_text_box",
+            {"slide": 1, "text": "x", "x": 0, "y": 0, "width": 100, "height": 50,
+             "object_id": "slide_01_x"},
+            fake, context=ctx,
+        )
+        assert "object name" not in fake.calls[0]
+        assert "set name of" not in fake.calls[0]
+
+    def test_runner_failure_does_not_register_object(self):
+        fake = FakeScriptRunner()
+        ctx: dict = {"keynote": {"layouts": _DEFAULT_LAYOUTS}}
+        # Handlers coerce geometry args to float before passing to script builders;
+        # use float values here so the key matches what the handler actually sends.
+        s = scripts.add_text_box(1, "slide_01_text_box_1", "x", 0, 0, 100, 50)
+        fake.responses[s] = ScriptRunResult("", "oops", 1)
+        result, state = _run_tool(
+            "keynote.add_text_box",
+            {"slide": 1, "text": "x", "x": 0, "y": 0, "width": 100, "height": 50},
+            fake, context=ctx,
+        )
+        assert result.ok is False
+        assert "objects" not in state.context.get("keynote", {})
+
+
+# ---------------------------------------------------------------------------
+# keynote.add_emoji_text tool
+# ---------------------------------------------------------------------------
+
+class TestAddEmojiTextTool:
+    def test_success_records_type_and_text(self):
+        fake = FakeScriptRunner()
+        ctx: dict = {"keynote": {"slide_count": 2}}
+        result, state = _run_tool(
+            "keynote.add_emoji_text",
+            {"slide": 1, "emoji": "🐷", "x": 100, "y": 100, "size": 96,
+             "object_id": "slide_01_pig"},
+            fake, context=ctx,
+        )
+        assert result.ok is True
+        obj = state.context["keynote"]["objects"]["slide_01_pig"]
+        assert obj["type"] == "emoji"
+        assert obj["apple_class"] == "text item"
+        assert obj["apple_index"] == 1
+        assert obj["text"] == "🐷"
+
+    def test_size_maps_to_geometry(self):
+        fake = FakeScriptRunner()
+        ctx: dict = {}
+        _, state = _run_tool(
+            "keynote.add_emoji_text",
+            {"slide": 1, "emoji": "🐷", "x": 0, "y": 0, "size": 96,
+             "object_id": "slide_01_e"},
+            fake, context=ctx,
+        )
+        obj = state.context["keynote"]["objects"]["slide_01_e"]
+        assert obj["width"] == 96 * 1.5
+        assert obj["height"] == 96 * 1.5
+
+    def test_calls_text_box_path(self):
+        fake = FakeScriptRunner()
+        ctx: dict = {}
+        _run_tool(
+            "keynote.add_emoji_text",
+            {"slide": 1, "emoji": "🐷", "x": 0, "y": 0, "size": 96,
+             "object_id": "slide_01_e"},
+            fake, context=ctx,
+        )
+        # Exactly one runner call using add_text_box AppleScript form
+        assert len(fake.calls) == 1
+        assert "object name" not in fake.calls[0]
+        assert "🐷" in fake.calls[0]
+
+    def test_size_zero_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        result, _ = _run_tool(
+            "keynote.add_emoji_text",
+            {"slide": 1, "emoji": "🐷", "x": 0, "y": 0, "size": 0},
+            fake,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_auto_generates_object_id_with_emoji_kind(self):
+        fake = FakeScriptRunner()
+        ctx: dict = {}
+        result, _ = _run_tool(
+            "keynote.add_emoji_text",
+            {"slide": 3, "emoji": "🐺", "x": 0, "y": 0, "size": 64},
+            fake, context=ctx,
+        )
+        assert result.ok is True
+        assert result.output["object_id"] == "slide_03_emoji_1"
+
+    def test_slides_index_uses_string_key(self):
+        fake = FakeScriptRunner()
+        ctx: dict = {}
+        _, state = _run_tool(
+            "keynote.add_emoji_text",
+            {"slide": 2, "emoji": "🐷", "x": 0, "y": 0, "size": 48,
+             "object_id": "slide_02_pig"},
+            fake, context=ctx,
+        )
+        assert "2" in state.context["keynote"]["slides"]
+
+
+# ---------------------------------------------------------------------------
+# keynote.add_shape tool
+# ---------------------------------------------------------------------------
+
+class TestAddShapeTool:
+    def test_rectangle_success(self):
+        fake = FakeScriptRunner()
+        ctx: dict = {"keynote": {"slide_count": 2}}
+        result, state = _run_tool(
+            "keynote.add_shape",
+            {"slide": 1, "shape": "rectangle", "x": 0, "y": 0, "width": 200, "height": 100,
+             "object_id": "slide_01_rect"},
+            fake, context=ctx,
+        )
+        assert result.ok is True
+        obj = state.context["keynote"]["objects"]["slide_01_rect"]
+        assert obj["type"] == "shape"
+        assert obj["apple_class"] == "shape"
+        assert obj["apple_index"] == 1
+        assert obj["shape"] == "rectangle"
+
+    def test_rounded_rectangle_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        result, _ = _run_tool(
+            "keynote.add_shape",
+            {"slide": 1, "shape": "rounded_rectangle", "x": 0, "y": 0,
+             "width": 200, "height": 100, "object_id": "slide_01_rr"},
+            fake,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_oval_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        result, _ = _run_tool(
+            "keynote.add_shape",
+            {"slide": 1, "shape": "oval", "x": 0, "y": 0,
+             "width": 200, "height": 100, "object_id": "slide_01_oval"},
+            fake,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_line_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        result, _ = _run_tool(
+            "keynote.add_shape",
+            {"slide": 1, "shape": "line", "x": 0, "y": 0, "width": 200, "height": 5},
+            fake,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_unknown_shape_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        result, _ = _run_tool(
+            "keynote.add_shape",
+            {"slide": 1, "shape": "triangle", "x": 0, "y": 0, "width": 200, "height": 100},
+            fake,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_fill_color_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        result, _ = _run_tool(
+            "keynote.add_shape",
+            {"slide": 1, "shape": "rectangle", "x": 0, "y": 0, "width": 100, "height": 50,
+             "object_id": "slide_01_s", "fill_color": "#F4D8A8"},
+            fake,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_fill_color_rejected_before_color_validation(self):
+        fake = FakeScriptRunner()
+        result, _ = _run_tool(
+            "keynote.add_shape",
+            {"slide": 1, "shape": "rectangle", "x": 0, "y": 0, "width": 100, "height": 50,
+             "fill_color": "badcolor"},
+            fake,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_script_does_not_use_object_name(self):
+        fake = FakeScriptRunner()
+        _run_tool(
+            "keynote.add_shape",
+            {"slide": 1, "shape": "rectangle", "x": 0, "y": 0, "width": 100, "height": 50,
+             "object_id": "slide_01_s"},
+            fake,
+        )
+        assert "object name" not in fake.calls[0]
+
+    def test_runner_failure_does_not_register(self):
+        fake = FakeScriptRunner()
+        ctx: dict = {}
+        s = scripts.add_shape(1, "slide_01_shape_1", "rectangle", 0, 0, 100, 50)
+        fake.responses[s] = ScriptRunResult("", "fail", 1)
+        result, state = _run_tool(
+            "keynote.add_shape",
+            {"slide": 1, "shape": "rectangle", "x": 0, "y": 0, "width": 100, "height": 50},
+            fake, context=ctx,
+        )
+        assert result.ok is False
+        assert "objects" not in state.context.get("keynote", {})
+
+    def test_context_unchanged_after_runner_failure(self):
+        fake = FakeScriptRunner()
+        ctx: dict = {"keynote": {"objects": {"existing": {"object_id": "existing", "slide": 1}}}}
+        s = scripts.add_shape(1, "slide_01_shape_1", "rectangle", 0, 0, 100, 50)
+        fake.responses[s] = ScriptRunResult("", "fail", 1)
+        _, state = _run_tool(
+            "keynote.add_shape",
+            {"slide": 1, "shape": "rectangle", "x": 0, "y": 0, "width": 100, "height": 50},
+            fake, context=ctx,
+        )
+        assert list(state.context["keynote"]["objects"].keys()) == ["existing"]
+
+
+# ---------------------------------------------------------------------------
+# keynote.move_object tool
+# ---------------------------------------------------------------------------
+
+class TestMoveObjectTool:
+    def _ctx_with_object(self):
+        return {
+            "keynote": {
+                "objects": {
+                    "slide_01_box": {
+                        "object_id": "slide_01_box",
+                        "slide": 1,
+                        "type": "text_box",
+                        "x": 100.0,
+                        "y": 200.0,
+                        "width": 300.0,
+                    "height": 80.0,
+                    "apple_class": "text item",
+                    "apple_index": 7,
+                }
+                },
+                "slides": {"1": {"objects": ["slide_01_box"]}},
+            }
+        }
+
+    def test_success_updates_context(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_object()
+        result, state = _run_tool(
+            "keynote.move_object",
+            {"object_id": "slide_01_box", "x": 50, "y": 60},
+            fake, context=ctx,
+        )
+        assert result.ok is True
+        obj = state.context["keynote"]["objects"]["slide_01_box"]
+        assert obj["x"] == 50.0
+        assert obj["y"] == 60.0
+
+    def test_uses_stored_reference_in_script(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_object()
+        _run_tool("keynote.move_object", {"object_id": "slide_01_box", "x": 0, "y": 0},
+                  fake, context=ctx)
+        assert "text item 7" in fake.calls[0]
+
+    def test_unknown_object_id_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        result, _ = _run_tool(
+            "keynote.move_object",
+            {"object_id": "nonexistent", "x": 0, "y": 0},
+            fake,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_runner_failure_does_not_mutate_context(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_object()
+        s = scripts.move_object(1, "text item", 7, 50, 60)
+        fake.responses[s] = ScriptRunResult("", "move failed", 1)
+        result, state = _run_tool(
+            "keynote.move_object",
+            {"object_id": "slide_01_box", "x": 50, "y": 60},
+            fake, context=ctx,
+        )
+        assert result.ok is False
+        # x, y unchanged
+        assert state.context["keynote"]["objects"]["slide_01_box"]["x"] == 100.0
+        assert state.context["keynote"]["objects"]["slide_01_box"]["y"] == 200.0
+
+    def test_negative_x_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_object()
+        result, _ = _run_tool(
+            "keynote.move_object",
+            {"object_id": "slide_01_box", "x": -1, "y": 0},
+            fake, context=ctx,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+
+# ---------------------------------------------------------------------------
+# keynote.resize_object tool
+# ---------------------------------------------------------------------------
+
+class TestResizeObjectTool:
+    def _ctx_with_object(self):
+        return {
+            "keynote": {
+                "objects": {
+                    "slide_01_box": {
+                        "object_id": "slide_01_box",
+                        "slide": 1,
+                        "type": "text_box",
+                        "x": 100.0,
+                        "y": 200.0,
+                        "width": 300.0,
+                        "height": 80.0,
+                        "apple_class": "text item",
+                        "apple_index": 7,
+                    }
+                }
+            }
+        }
+
+    def test_success_updates_context(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_object()
+        result, state = _run_tool(
+            "keynote.resize_object",
+            {"object_id": "slide_01_box", "width": 500, "height": 120},
+            fake, context=ctx,
+        )
+        assert result.ok is True
+        obj = state.context["keynote"]["objects"]["slide_01_box"]
+        assert obj["width"] == 500.0
+        assert obj["height"] == 120.0
+
+    def test_uses_stored_reference_in_script(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_object()
+        _run_tool("keynote.resize_object", {"object_id": "slide_01_box", "width": 200, "height": 100},
+                  fake, context=ctx)
+        assert "text item 7" in fake.calls[0]
+
+    def test_unknown_object_id_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        result, _ = _run_tool(
+            "keynote.resize_object",
+            {"object_id": "ghost", "width": 200, "height": 100},
+            fake,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_zero_width_rejected_before_runner(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_object()
+        result, _ = _run_tool(
+            "keynote.resize_object",
+            {"object_id": "slide_01_box", "width": 0, "height": 100},
+            fake, context=ctx,
+        )
+        assert result.ok is False
+        assert len(fake.calls) == 0
+
+    def test_runner_failure_does_not_mutate_context(self):
+        fake = FakeScriptRunner()
+        ctx = self._ctx_with_object()
+        s = scripts.resize_object(1, "text item", 7, 500, 120)
+        fake.responses[s] = ScriptRunResult("", "resize failed", 1)
+        result, state = _run_tool(
+            "keynote.resize_object",
+            {"object_id": "slide_01_box", "width": 500, "height": 120},
+            fake, context=ctx,
+        )
+        assert result.ok is False
+        assert state.context["keynote"]["objects"]["slide_01_box"]["width"] == 300.0
+        assert state.context["keynote"]["objects"]["slide_01_box"]["height"] == 80.0
+
+
+# ---------------------------------------------------------------------------
 # CLI --tools integration
 # ---------------------------------------------------------------------------
 
@@ -827,7 +1541,31 @@ def test_keynote_smoke(tmp_path: Path):
     # 5. Set title on slide 1
     _step("keynote.set_slide_title", {"slide": 1, "title": "Hello from oka"})
 
-    # 6. Export PDF
+    # 6. Add a text box
+    _step("keynote.add_text_box", {
+        "slide": 1, "text": "The End", "x": 360, "y": 260,
+        "width": 560, "height": 110, "object_id": "slide_01_the_end",
+        "font_size": 64,
+    })
+
+    # 7. Add an emoji text object
+    _step("keynote.add_emoji_text", {
+        "slide": 1, "emoji": "🐷", "x": 760, "y": 180, "size": 96,
+        "object_id": "slide_01_pig",
+    })
+
+    # 8. Add the MVP rectangle shape. Other shape kinds/fill colors are deferred
+    # until a real Keynote AppleScript construction path is confirmed.
+    _step("keynote.add_shape", {
+        "slide": 1, "shape": "rectangle", "x": 50, "y": 50,
+        "width": 300, "height": 150, "object_id": "slide_01_rect",
+    })
+
+    # 9. Resize one object
+    _step("keynote.resize_object", {"object_id": "slide_01_the_end", "width": 660, "height": 140})
+    assert state.context["keynote"]["objects"]["slide_01_the_end"]["width"] == 660.0
+
+    # 10. Export PDF
     pdf_path = tmp_path / "smoke.pdf"
     _step("keynote.export_pdf", {"path": str(pdf_path)})
     assert pdf_path.exists()
