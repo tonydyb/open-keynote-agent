@@ -1,4 +1,6 @@
+import json
 import typer
+from datetime import UTC, datetime
 from pathlib import Path
 
 from rich.console import Console
@@ -17,6 +19,8 @@ from open_keynote_agent.runtime.events import EventLog
 from open_keynote_agent.applescript.runner import OsascriptRunner
 from open_keynote_agent.tools.demo import register_demo_tools
 from open_keynote_agent.tools.keynote import register_keynote_tools
+from open_keynote_agent.deck.planner import plan_deck_spec
+from open_keynote_agent.deck.outline import render_deck_outline
 
 app = typer.Typer(help="Open Keynote Agent CLI")
 console = Console()
@@ -326,6 +330,57 @@ def session(
 
     event_log.append("session_end", {"session_id": state.session_id, "turn_count": turn_index})
     console.print("[dim]Session ended.[/]")
+
+
+@app.command(name="deck-plan")
+def deck_plan(
+    brief: str = typer.Argument(..., help="Natural-language presentation brief."),
+    slides: int | None = typer.Option(None, "--slides", help="Optional slide count hint (1..20)."),
+    theme: str = typer.Option("Parchment", "--theme", help="Optional Keynote theme hint."),
+    output: Path | None = typer.Option(None, "--output", help="Output directory (default: unique dir under .runs/)."),
+) -> None:
+    """Convert a presentation brief into a validated DeckSpec JSON and slide outline."""
+    try:
+        client = load_llm_client_from_env()
+        deck = plan_deck_spec(brief, client, slide_count_hint=slides, theme_hint=theme)
+    except Exception as exc:
+        console.print(f"[red]Error:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    default_dir_created: Path | None = None
+    if output is None:
+        base = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        candidate = Path(".runs") / base
+        suffix = 0
+        while candidate.exists():
+            suffix += 1
+            candidate = Path(".runs") / f"{base}-{suffix}"
+        candidate.mkdir(parents=True)
+        out_dir = candidate
+        default_dir_created = candidate
+    else:
+        out_dir = output
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    for name in ("request.json", "deck_spec.json", "outline.md"):
+        if (out_dir / name).exists():
+            console.print(f"[red]Error:[/] Output file already exists: {out_dir / name}")
+            if default_dir_created is not None:
+                default_dir_created.rmdir()
+            raise typer.Exit(code=1)
+
+    request_data = {"command": "deck-plan", "brief": brief, "slides": slides, "theme": theme}
+    (out_dir / "request.json").write_text(
+        json.dumps(request_data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (out_dir / "deck_spec.json").write_text(
+        json.dumps(deck.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    outline_text = render_deck_outline(deck)
+    (out_dir / "outline.md").write_text(outline_text, encoding="utf-8")
+
+    console.print(outline_text)
+    console.print(f"[dim]Output written to {out_dir}[/]")
 
 
 if __name__ == "__main__":

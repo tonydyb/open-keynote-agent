@@ -67,6 +67,20 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 
 When running `oka session --tools keynote`, macOS may prompt for permission to control Keynote via Automation. Grant it when asked.
 
+## Architecture (Deck Spec Planner — change 008)
+
+### Deck package (`deck/`)
+- `deck/schema.py` — `DeckSpec`, `SlideSpec`, `StyleSpec`, `VisualSpec` (Pydantic v2, `extra="forbid"`)
+- `deck/planner.py` — `plan_deck_spec(brief, llm_client, slide_count_hint, theme_hint)` → `DeckSpec`
+- `deck/outline.py` — `render_deck_outline(deck)` → `str`
+- The `deck` package MUST NOT import `tools.keynote`, `applescript.*`, or `OsascriptRunner`
+- `VisualSpec.decorations` are conceptual style notes; they are NOT `keynote.add_shape` enum values
+- `DeckSpec.language` defaults to `None`; inferred from the brief's primary language by the LLM
+- CLI: `oka deck-plan "<brief>" [--slides N] [--theme TEXT] [--output PATH]`
+- Default output directory: `.runs/<YYYYMMDDTHHMMSSZ>/`; appends `-1`, `-2` on timestamp collision
+- On failure: exit non-zero, print concise error, do not write partial files
+- This change does NOT render Keynote slides — the planning artifact only
+
 ## Architecture (Keynote Adapter — changes 005 + 006)
 
 ### Keynote tool set (`applescript/` + `tools/keynote.py`)

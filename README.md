@@ -157,6 +157,36 @@ RUN_KEYNOTE_INTEGRATION=1 uv run python -m pytest -m keynote_integration -s
 
 Normal tests do not require Keynote, `osascript`, macOS GUI access, or any special permissions.
 
+## Deck Planning
+
+`oka deck-plan` converts a natural-language presentation brief into a validated
+`DeckSpec` JSON and a readable slide outline, **without opening Keynote**:
+
+```bash
+oka deck-plan "请为我制作一个关于《三只小猪》故事的精美 Keynote 演示文稿" \
+    --slides 8 --theme Parchment
+```
+
+Options:
+
+| Option | Default | Description |
+|---|---|---|
+| `--slides` | (from brief) | Slide count hint (1..20) |
+| `--theme` | Parchment | Keynote theme hint |
+| `--output` | `.runs/<timestamp>/` | Output directory |
+
+The command writes three files to the output directory:
+
+- `request.json` — the original brief and options
+- `deck_spec.json` — the validated `DeckSpec` (UTF-8, `ensure_ascii=False`)
+- `outline.md` — a human-readable slide outline for review
+
+The outline is printed to the terminal so you can inspect the plan before rendering.
+
+This command does **not** open Keynote and does **not** call any `keynote.*` tools.
+The next change (`009`) will use the `DeckSpec` to render slides using deterministic
+layout templates.
+
 ## Keynote Roadmap
 
 The next project direction is an interactive Keynote agent:
@@ -165,5 +195,6 @@ The next project direction is an interactive Keynote agent:
 2. ✅ Keynote AppleScript adapter (`keynote.*` tools, `oka session --tools keynote`).
 3. ✅ Theme and layout discovery (`keynote.list_themes`, `keynote.list_layouts`, `keynote.resolve_layout`).
 4. ✅ Object tools (`keynote.add_text_box`, `keynote.add_emoji_text`, `keynote.add_shape`, `keynote.move_object`, `keynote.resize_object`).
-5. Add verification for generated `.key` and PDF outputs.
-5. Expose session events through an API suitable for a future Studio UI.
+5. ✅ Deck spec planner (`oka deck-plan`, `DeckSpec`, `plan_deck_spec`, `render_deck_outline`).
+6. Add storybook renderer: `DeckSpec` → Keynote layout templates → PDF export.
+7. Expose session events through an API suitable for a future Studio UI.

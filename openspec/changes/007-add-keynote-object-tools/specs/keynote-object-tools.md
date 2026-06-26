@@ -206,7 +206,6 @@ with parameters:
   "y": 120,
   "width": 1000,
   "height": 420,
-  "object_id": "slide_01_title_panel",
   "object_id": "slide_01_title_panel"
 }
 ```

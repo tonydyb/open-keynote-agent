@@ -65,6 +65,20 @@ All tests run without cloud credentials or API keys — the default `OMA_LLM_PRO
 
 Unit tests do not require Keynote, `osascript`, macOS GUI access, or special permissions. The `keynote_integration` marker gates tests that call real Keynote; they are skipped unless `RUN_KEYNOTE_INTEGRATION=1` is set.
 
+## Architecture (Deck Spec Planner — change 008)
+
+### Deck package (`deck/`)
+- `deck/schema.py` — `DeckSpec`, `SlideSpec`, `StyleSpec`, `VisualSpec` (Pydantic v2, `extra="forbid"`)
+- `deck/planner.py` — `plan_deck_spec(brief, llm_client, slide_count_hint, theme_hint)` → `DeckSpec`
+- `deck/outline.py` — `render_deck_outline(deck)` → `str`
+- The `deck` package MUST NOT import `tools.keynote`, `applescript.*`, or `OsascriptRunner`
+- `VisualSpec.decorations` are conceptual style notes; they are NOT `keynote.add_shape` enum values
+- `DeckSpec.language` defaults to `None`; the planner instructs the LLM to infer it from the brief
+- CLI: `oka deck-plan "<brief>" [--slides N] [--theme TEXT] [--output PATH]`
+- Default output: `.runs/<YYYYMMDDTHHMMSSZ>/` (same convention as `runtime/session.py`); appends `-1`, `-2` suffix on collision
+- On failure: exit non-zero, print a concise error, do not write partial files
+- This change does NOT render Keynote slides — it produces the planning artifact only
+
 ## Architecture (Keynote Adapter — changes 005 + 006)
 
 ### Keynote tool set (`applescript/` + `tools/keynote.py`)
