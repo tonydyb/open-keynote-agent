@@ -67,6 +67,20 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 
 When running `oka session --tools keynote`, macOS may prompt for permission to control Keynote via Automation. Grant it when asked.
 
+## Architecture (Keynote Adapter — changes 005 + 006)
+
+### Keynote tool set (`applescript/` + `tools/keynote.py`)
+- `applescript/runner.py` — `ScriptRunner` protocol, `OsascriptRunner` (subprocess), `FakeScriptRunner` (tests)
+- `applescript/scripts.py` — AppleScript string builders; `applescript_string()` escapes all user-controlled values; includes `list_themes()`, `list_layouts()`, and theme variant of `create_document()`
+- `applescript/layout.py` — `_parse_newline_list()`, `LAYOUT_CANDIDATES`, `resolve_layout_name(semantic, available)`
+- `tools/keynote.py` — `keynote.*` tool handlers + `register_keynote_tools(registry, runner)`; imports resolver from `applescript/layout.py`; no `_LAYOUT_MAP`
+
+### Theme and layout discovery (change 006)
+- `keynote.list_themes` / `keynote.list_layouts` — use `AppleScript's text item delimiters` for newline output; never split on commas
+- `keynote.resolve_layout` — resolves `title`, `title_body`, `blank` to actual Keynote master slide names
+- `keynote.add_slide` — reads cached `context["keynote"]["layouts"]`; fetches via runner if absent
+- `Parchment` is the recommended built-in storybook theme
+
 ## Architecture (File Organizer Milestone)
 
 The data flow is: **CLI → organizer (plan) → filesystem (execute) → session (log)**

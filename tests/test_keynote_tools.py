@@ -1,4 +1,4 @@
-"""Tests for the Keynote AppleScript adapter (005-add-keynote-applescript-adapter).
+"""Tests for the Keynote AppleScript adapter (005 + 006).
 
 Unit tests only — no real osascript, no Keynote process, no macOS GUI access required.
 subprocess is only monkeypatched through open_keynote_agent.applescript.runner.subprocess.run
@@ -19,6 +19,7 @@ from open_keynote_agent.agent.executor import execute_plan
 from open_keynote_agent.agent.registry import ToolRegistry
 from open_keynote_agent.agent.session import Plan, ProposedToolCall, SessionState
 from open_keynote_agent.applescript import scripts
+from open_keynote_agent.applescript.layout import _parse_newline_list, resolve_layout_name
 from open_keynote_agent.applescript.runner import (
     FakeScriptRunner,
     OsascriptRunner,
@@ -41,12 +42,17 @@ def _registry_with_keynote(runner: FakeScriptRunner) -> ToolRegistry:
     return registry
 
 
-def _run_tool(tool: str, args: dict[str, Any], runner: FakeScriptRunner) -> Any:
+def _run_tool(tool: str, args: dict[str, Any], runner: FakeScriptRunner, context: dict[str, Any] | None = None) -> Any:
     registry = _registry_with_keynote(runner)
     state = SessionState()
+    if context is not None:
+        state.context.update(context)
     plan = Plan(steps=[ProposedToolCall(tool=tool, args=args, description=tool)])
     results = execute_plan(plan, registry, state)
     return results[0], state
+
+
+_DEFAULT_LAYOUTS = ["Title", "Title & Bullets", "Blank"]
 
 
 # ---------------------------------------------------------------------------
@@ -216,9 +222,47 @@ class TestScriptBuilders:
         assert "|" in s
         assert "slide" in s.lower()
 
+    def test_list_themes_contains_text_item_delimiters(self):
+        s = scripts.list_themes()
+        assert "text item delimiters" in s
+        assert "Keynote" in s
+        assert "theme" in s.lower()
+
+    def test_list_themes_uses_newline_delimiter(self):
+        s = scripts.list_themes()
+        assert "\\n" in s
+
+    def test_list_layouts_contains_text_item_delimiters(self):
+        s = scripts.list_layouts()
+        assert "text item delimiters" in s
+        assert "Keynote" in s
+        assert "master slide" in s
+
+    def test_list_layouts_uses_newline_delimiter(self):
+        s = scripts.list_layouts()
+        assert "\\n" in s
+
+    def test_create_document_with_theme(self):
+        s = scripts.create_document("My Deck", theme="Parchment")
+        assert "document theme" in s
+        assert "Parchment" in s
+        assert "My Deck" not in s  # name still session-only
+
+    def test_create_document_with_theme_escapes_theme(self):
+        s = scripts.create_document("x", theme='Theme"Name')
+        assert '\\"' in s
+
+    def test_create_document_without_theme_unchanged(self):
+        s = scripts.create_document("x")
+        assert "document theme" not in s
+        assert "make new document" in s
+
     def test_no_builder_contains_display_dialog(self):
         builders = [
+            scripts.list_themes(),
+            scripts.list_layouts(),
             scripts.create_document("x"),
+            scripts.create_document("x", theme="Parchment"),
             scripts.add_slide("Title"),
             scripts.set_slide_title(1, "t"),
             scripts.set_slide_body(1, "b"),
@@ -254,44 +298,115 @@ class TestCreateDocument:
 
     def test_runner_error_produces_failed_result(self):
         fake = FakeScriptRunner()
-        # Make any script call fail
         script = scripts.create_document("x")
         fake.responses[script] = ScriptRunResult(stdout="", stderr="permission denied", returncode=1)
         result, _ = _run_tool("keynote.create_document", {"name": "x"}, fake)
         assert result.ok is False
         assert "permission denied" in result.observation
 
+    def test_with_theme_updates_context_theme(self):
+        fake = FakeScriptRunner()
+        result, state = _run_tool("keynote.create_document", {"name": "MyDeck", "theme": "Parchment"}, fake)
+        assert result.ok is True
+        assert state.context["keynote"]["theme"] == "Parchment"
+
+    def test_with_theme_script_contains_document_theme(self):
+        fake = FakeScriptRunner()
+        _run_tool("keynote.create_document", {"name": "x", "theme": "Parchment"}, fake)
+        assert "document theme" in fake.calls[0]
+        assert "Parchment" in fake.calls[0]
+
+    def test_without_theme_no_document_theme_in_script(self):
+        fake = FakeScriptRunner()
+        _run_tool("keynote.create_document", {"name": "x"}, fake)
+        assert "document theme" not in fake.calls[0]
+
+    def test_without_theme_no_theme_in_context(self):
+        fake = FakeScriptRunner()
+        _, state = _run_tool("keynote.create_document", {"name": "x"}, fake)
+        assert "theme" not in state.context.get("keynote", {})
+
+    def test_preserves_themes_from_prior_list_themes(self):
+        fake = FakeScriptRunner()
+        ctx = {"keynote": {"themes": ["Parchment", "Basic White"]}}
+        _, state = _run_tool("keynote.create_document", {"name": "x"}, fake, context=ctx)
+        assert state.context["keynote"]["themes"] == ["Parchment", "Basic White"]
+
+    def test_clears_stale_layouts_on_new_document(self):
+        fake = FakeScriptRunner()
+        ctx = {"keynote": {"layouts": ["Title", "Blank"], "themes": ["Parchment"]}}
+        _, state = _run_tool("keynote.create_document", {"name": "x"}, fake, context=ctx)
+        assert "layouts" not in state.context["keynote"]
+
+    def test_with_theme_runner_error_does_not_set_context_theme(self):
+        fake = FakeScriptRunner()
+        script = scripts.create_document("x", theme="Parchment")
+        fake.responses[script] = ScriptRunResult(stdout="", stderr="no theme", returncode=1)
+        result, state = _run_tool("keynote.create_document", {"name": "x", "theme": "Parchment"}, fake)
+        assert result.ok is False
+        assert state.context.get("keynote", {}).get("theme") is None
+
 
 class TestAddSlide:
     def test_valid_layout_title(self):
         fake = FakeScriptRunner()
-        result, state = _run_tool("keynote.add_slide", {"layout": "title"}, fake)
+        ctx = {"keynote": {"layouts": _DEFAULT_LAYOUTS}}
+        result, state = _run_tool("keynote.add_slide", {"layout": "title"}, fake, context=ctx)
         assert result.ok is True
+        # Only the add_slide script should have been called (no list_layouts)
+        assert len(fake.calls) == 1
         assert "Title" in fake.calls[0]
 
     def test_valid_layout_title_body(self):
         fake = FakeScriptRunner()
-        result, _ = _run_tool("keynote.add_slide", {"layout": "title_body"}, fake)
+        ctx = {"keynote": {"layouts": _DEFAULT_LAYOUTS}}
+        result, _ = _run_tool("keynote.add_slide", {"layout": "title_body"}, fake, context=ctx)
         assert result.ok is True
+        assert len(fake.calls) == 1
         assert "Title & Bullets" in fake.calls[0]
 
     def test_valid_layout_blank(self):
         fake = FakeScriptRunner()
-        result, _ = _run_tool("keynote.add_slide", {"layout": "blank"}, fake)
+        ctx = {"keynote": {"layouts": _DEFAULT_LAYOUTS}}
+        result, _ = _run_tool("keynote.add_slide", {"layout": "blank"}, fake, context=ctx)
         assert result.ok is True
+        assert len(fake.calls) == 1
         assert "Blank" in fake.calls[0]
 
-    def test_invalid_layout_fails_before_runner(self):
+    def test_does_not_call_list_layouts_when_cached(self):
         fake = FakeScriptRunner()
-        result, _ = _run_tool("keynote.add_slide", {"layout": "unknown_layout"}, fake)
+        ctx = {"keynote": {"layouts": _DEFAULT_LAYOUTS}}
+        _run_tool("keynote.add_slide", {"layout": "title_body"}, fake, context=ctx)
+        # Exactly one script call — add_slide only, not list_layouts
+        assert len(fake.calls) == 1
+        assert "master slide" in fake.calls[0]
+
+    def test_calls_list_layouts_when_not_cached(self):
+        fake = FakeScriptRunner()
+        list_layouts_script = scripts.list_layouts()
+        fake.responses[list_layouts_script] = ScriptRunResult(
+            stdout="Title\nTitle & Bullets\nBlank\n", stderr="", returncode=0
+        )
+        result, state = _run_tool("keynote.add_slide", {"layout": "title_body"}, fake)
+        assert result.ok is True
+        # First call should be list_layouts, second is add_slide
+        assert len(fake.calls) == 2
+        assert fake.calls[0] == list_layouts_script
+        assert "Title & Bullets" in fake.calls[1]
+        # Context updated with fetched layouts
+        assert state.context["keynote"]["layouts"] == ["Title", "Title & Bullets", "Blank"]
+
+    def test_invalid_layout_fails(self):
+        fake = FakeScriptRunner()
+        ctx = {"keynote": {"layouts": _DEFAULT_LAYOUTS}}
+        result, _ = _run_tool("keynote.add_slide", {"layout": "unknown_layout"}, fake, context=ctx)
         assert result.ok is False
-        assert len(fake.calls) == 0  # runner never called
 
     def test_slide_count_incremented(self):
         fake = FakeScriptRunner()
         registry = _registry_with_keynote(fake)
         state = SessionState()
-        state.context["keynote"] = {"name": "d", "slide_count": 2}
+        state.context["keynote"] = {"name": "d", "slide_count": 2, "layouts": _DEFAULT_LAYOUTS}
         plan = Plan(steps=[ProposedToolCall(tool="keynote.add_slide", args={"layout": "blank"}, description="add")])
         execute_plan(plan, registry, state)
         assert state.context["keynote"]["slide_count"] == 3
@@ -300,8 +415,172 @@ class TestAddSlide:
         fake = FakeScriptRunner()
         script = scripts.add_slide("Blank")
         fake.responses[script] = ScriptRunResult(stdout="", stderr="Keynote error", returncode=1)
-        result, _ = _run_tool("keynote.add_slide", {"layout": "blank"}, fake)
+        ctx = {"keynote": {"layouts": _DEFAULT_LAYOUTS}}
+        result, _ = _run_tool("keynote.add_slide", {"layout": "blank"}, fake, context=ctx)
         assert result.ok is False
+
+
+# ---------------------------------------------------------------------------
+# Layout module: _parse_newline_list, LAYOUT_CANDIDATES, resolve_layout_name
+# ---------------------------------------------------------------------------
+
+class TestParseNewlineList:
+    def test_basic(self):
+        assert _parse_newline_list("Title\nTitle & Bullets\nBlank\n") == ["Title", "Title & Bullets", "Blank"]
+
+    def test_empty_string(self):
+        assert _parse_newline_list("") == []
+
+    def test_strips_blank_lines(self):
+        assert _parse_newline_list("Title\n\nBlank\n") == ["Title", "Blank"]
+
+    def test_comma_containing_name_preserved(self):
+        result = _parse_newline_list("Title\nTitle, Content\nBlank\n")
+        assert result == ["Title", "Title, Content", "Blank"]
+
+    def test_no_comma_splitting(self):
+        # If comma-splitting happened, "Title, Content" would become two entries
+        result = _parse_newline_list("Title, Content")
+        assert len(result) == 1
+        assert result[0] == "Title, Content"
+
+
+class TestResolveLayoutName:
+    def test_exact_match_returned(self):
+        assert resolve_layout_name("Title & Bullets", ["Title", "Title & Bullets", "Blank"]) == "Title & Bullets"
+
+    def test_semantic_title_resolves(self):
+        assert resolve_layout_name("title", ["Title", "Title & Bullets", "Blank"]) == "Title"
+
+    def test_semantic_title_body_resolves(self):
+        assert resolve_layout_name("title_body", ["Title", "Title & Bullets", "Blank"]) == "Title & Bullets"
+
+    def test_semantic_blank_resolves(self):
+        assert resolve_layout_name("blank", ["Title", "Title & Bullets", "Blank"]) == "Blank"
+
+    def test_first_candidate_wins(self):
+        # "Title, Content" is a candidate for title_body; prefer it when "Title & Bullets" absent
+        available = ["Title", "Title, Content", "Blank"]
+        assert resolve_layout_name("title_body", available) == "Title, Content"
+
+    def test_unknown_layout_raises_value_error(self):
+        with pytest.raises(ValueError, match="nosuchlayout"):
+            resolve_layout_name("nosuchlayout", ["Title", "Blank"])
+
+    def test_error_includes_available(self):
+        with pytest.raises(ValueError, match="Title"):
+            resolve_layout_name("unknown", ["Title", "Blank"])
+
+    def test_semantic_with_no_candidate_in_available_raises(self):
+        with pytest.raises(ValueError):
+            resolve_layout_name("title_body", ["Blank"])  # no title_body candidate present
+
+
+class TestListThemesTool:
+    def test_success_returns_themes(self):
+        fake = FakeScriptRunner()
+        fake.responses[scripts.list_themes()] = ScriptRunResult(
+            stdout="Basic White\nParchment\nCraft\n", stderr="", returncode=0
+        )
+        result, state = _run_tool("keynote.list_themes", {}, fake)
+        assert result.ok is True
+        assert result.output["themes"] == ["Basic White", "Parchment", "Craft"]
+
+    def test_updates_context(self):
+        fake = FakeScriptRunner()
+        fake.responses[scripts.list_themes()] = ScriptRunResult(
+            stdout="Basic White\nParchment\n", stderr="", returncode=0
+        )
+        _, state = _run_tool("keynote.list_themes", {}, fake)
+        assert state.context["keynote"]["themes"] == ["Basic White", "Parchment"]
+
+    def test_observation_includes_count(self):
+        fake = FakeScriptRunner()
+        fake.responses[scripts.list_themes()] = ScriptRunResult(
+            stdout="Basic White\nParchment\n", stderr="", returncode=0
+        )
+        result, _ = _run_tool("keynote.list_themes", {}, fake)
+        assert "2" in result.observation
+
+    def test_runner_error_fails(self):
+        fake = FakeScriptRunner()
+        fake.responses[scripts.list_themes()] = ScriptRunResult(stdout="", stderr="no Keynote", returncode=1)
+        result, _ = _run_tool("keynote.list_themes", {}, fake)
+        assert result.ok is False
+
+    def test_no_osascript_called(self):
+        fake = FakeScriptRunner()
+        fake.responses[scripts.list_themes()] = ScriptRunResult(stdout="Parchment\n", stderr="", returncode=0)
+        _run_tool("keynote.list_themes", {}, fake)
+        # FakeScriptRunner proves no real subprocess was involved
+
+
+class TestListLayoutsTool:
+    def test_success_returns_layouts(self):
+        fake = FakeScriptRunner()
+        fake.responses[scripts.list_layouts()] = ScriptRunResult(
+            stdout="Title\nTitle & Bullets\nBlank\n", stderr="", returncode=0
+        )
+        result, state = _run_tool("keynote.list_layouts", {}, fake)
+        assert result.ok is True
+        assert result.output["layouts"] == ["Title", "Title & Bullets", "Blank"]
+
+    def test_updates_context(self):
+        fake = FakeScriptRunner()
+        fake.responses[scripts.list_layouts()] = ScriptRunResult(
+            stdout="Title\nTitle & Bullets\nBlank\n", stderr="", returncode=0
+        )
+        _, state = _run_tool("keynote.list_layouts", {}, fake)
+        assert state.context["keynote"]["layouts"] == ["Title", "Title & Bullets", "Blank"]
+
+    def test_comma_containing_name_preserved(self):
+        fake = FakeScriptRunner()
+        fake.responses[scripts.list_layouts()] = ScriptRunResult(
+            stdout="Title\nTitle, Content\nBlank\n", stderr="", returncode=0
+        )
+        result, state = _run_tool("keynote.list_layouts", {}, fake)
+        assert "Title, Content" in result.output["layouts"]
+        assert len(result.output["layouts"]) == 3
+
+    def test_runner_error_fails(self):
+        fake = FakeScriptRunner()
+        fake.responses[scripts.list_layouts()] = ScriptRunResult(stdout="", stderr="no document", returncode=1)
+        result, _ = _run_tool("keynote.list_layouts", {}, fake)
+        assert result.ok is False
+
+
+class TestResolveLayoutTool:
+    def test_uses_cached_layouts(self):
+        fake = FakeScriptRunner()
+        ctx = {"keynote": {"layouts": _DEFAULT_LAYOUTS}}
+        result, _ = _run_tool("keynote.resolve_layout", {"layout": "title_body"}, fake, context=ctx)
+        assert result.ok is True
+        assert result.output["resolved"] == "Title & Bullets"
+        # No list_layouts call needed
+        assert len(fake.calls) == 0
+
+    def test_fetches_layouts_when_absent(self):
+        fake = FakeScriptRunner()
+        fake.responses[scripts.list_layouts()] = ScriptRunResult(
+            stdout="Title\nTitle & Bullets\nBlank\n", stderr="", returncode=0
+        )
+        result, state = _run_tool("keynote.resolve_layout", {"layout": "title_body"}, fake)
+        assert result.ok is True
+        assert result.output["resolved"] == "Title & Bullets"
+        assert fake.calls[0] == scripts.list_layouts()
+        assert state.context["keynote"]["layouts"] == ["Title", "Title & Bullets", "Blank"]
+
+    def test_unknown_layout_fails(self):
+        fake = FakeScriptRunner()
+        ctx = {"keynote": {"layouts": _DEFAULT_LAYOUTS}}
+        result, _ = _run_tool("keynote.resolve_layout", {"layout": "nosuch"}, fake, context=ctx)
+        assert result.ok is False
+
+    def test_observation_includes_resolved_name(self):
+        fake = FakeScriptRunner()
+        ctx = {"keynote": {"layouts": _DEFAULT_LAYOUTS}}
+        result, _ = _run_tool("keynote.resolve_layout", {"layout": "title_body"}, fake, context=ctx)
+        assert "Title & Bullets" in result.observation
 
 
 class TestSetSlideTitle:
@@ -507,7 +786,7 @@ keynote_integration = pytest.mark.skipif(
 @keynote_integration
 @pytest.mark.keynote_integration
 def test_keynote_smoke(tmp_path: Path):
-    """Smoke test: create document -> add slide -> set title -> export PDF."""
+    """Smoke test: list_themes -> create document with theme -> list_layouts -> add_slide -> set_title -> export PDF."""
     from open_keynote_agent.applescript.runner import OsascriptRunner as _OsascriptRunner
 
     registry = ToolRegistry()
@@ -520,10 +799,35 @@ def test_keynote_smoke(tmp_path: Path):
         assert results[0].ok, f"{tool} failed: {results[0].error}"
         return results[0]
 
-    _step("keynote.create_document", {"name": "smoke-test"})
+    # 1. List themes and choose Parchment > Basic White > first available
+    themes_result = _step("keynote.list_themes", {})
+    themes = themes_result.output["themes"]
+    assert len(themes) > 0, "No themes returned"
+    if "Parchment" in themes:
+        chosen_theme = "Parchment"
+    elif "Basic White" in themes:
+        chosen_theme = "Basic White"
+    else:
+        chosen_theme = themes[0]
+    print(f"Using theme: {chosen_theme!r}")
+
+    # 2. Create document with chosen theme
+    _step("keynote.create_document", {"name": "smoke-test", "theme": chosen_theme})
+    assert state.context["keynote"]["theme"] == chosen_theme
+
+    # 3. List layouts
+    layouts_result = _step("keynote.list_layouts", {})
+    layouts = layouts_result.output["layouts"]
+    assert len(layouts) > 0, "No layouts returned"
+    print(f"Layouts: {layouts}")
+
+    # 4. Add a title_body slide through semantic resolution
     _step("keynote.add_slide", {"layout": "title_body"})
+
+    # 5. Set title on slide 1
     _step("keynote.set_slide_title", {"slide": 1, "title": "Hello from oka"})
 
+    # 6. Export PDF
     pdf_path = tmp_path / "smoke.pdf"
     _step("keynote.export_pdf", {"path": str(pdf_path)})
     assert pdf_path.exists()

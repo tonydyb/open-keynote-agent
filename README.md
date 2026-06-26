@@ -99,9 +99,9 @@ Natural-language requests default to dry-run. File moves only happen when apply 
 - Tests use `FakeLLMClient` and do not require cloud credentials, API keys, or network access.
 - Each run writes audit artifacts under `.runs/<run-id>/`.
 
-## Keynote Adapter (change 005)
+## Keynote Adapter
 
-`oka session` now supports two tool sets:
+`oka session` supports two tool sets:
 
 ```bash
 oka session                   # default: demo.* tools (no Keynote required)
@@ -111,10 +111,43 @@ oka session --tools keynote   # real Keynote automation via AppleScript
 
 When `--tools keynote` is selected, macOS may prompt for permission to control Keynote via Automation. Grant the permission when asked.
 
-Integration tests (skipped by default) require macOS, Keynote installed, and Automation permission:
+### Theme and layout discovery (change 006)
+
+Discover installed themes and document layouts at runtime so the agent works
+across Keynote versions and user machines without hard-coded layout names:
+
+```text
+oka> Use tool keynote.list_themes
+oka> Use tool keynote.create_document with name three-pigs and theme Parchment
+oka> Use tool keynote.list_layouts
+oka> Use tool keynote.resolve_layout with layout title_body
+oka> Use tool keynote.add_slide with layout title_body
+```
+
+`Parchment` is the recommended built-in storybook theme when available. The
+semantic layout names (`title`, `title_body`, `blank`) are stable across themes;
+the adapter resolves them to the actual Keynote master slide name at runtime.
+
+### Keynote tools
+
+| Tool | Mutating | Description |
+|---|---|---|
+| `keynote.list_themes` | no | Return installed Keynote theme names. |
+| `keynote.create_document` | yes | Create a new document, optionally with a named theme. |
+| `keynote.list_layouts` | no | Return slide layout names for the front document. |
+| `keynote.resolve_layout` | no | Resolve a semantic layout name to a real Keynote name. |
+| `keynote.add_slide` | yes | Add a slide via semantic layout resolution. |
+| `keynote.set_slide_title` | yes | Set the title of a slide (1-indexed). |
+| `keynote.set_slide_body` | yes | Set the body text of a slide (1-indexed). |
+| `keynote.export_pdf` | yes | Export the front document to PDF. |
+| `keynote.get_document_info` | no | Return document name and slide count. |
+
+### Integration tests
+
+Skipped by default. Require macOS, Keynote installed, and Automation permission:
 
 ```bash
-RUN_KEYNOTE_INTEGRATION=1 uv run python -m pytest -m keynote_integration
+RUN_KEYNOTE_INTEGRATION=1 uv run python -m pytest -m keynote_integration -s
 ```
 
 Normal tests do not require Keynote, `osascript`, macOS GUI access, or any special permissions.
@@ -125,5 +158,6 @@ The next project direction is an interactive Keynote agent:
 
 1. ✅ Interactive agent runtime with session state, planner, executor, tool registry, observations, and step-by-step logs.
 2. ✅ Keynote AppleScript adapter (`keynote.*` tools, `oka session --tools keynote`).
-3. Add verification for generated `.key` and PDF outputs.
-4. Expose session events through an API suitable for a future Studio UI.
+3. ✅ Theme and layout discovery (`keynote.list_themes`, `keynote.list_layouts`, `keynote.resolve_layout`).
+4. Add verification for generated `.key` and PDF outputs.
+5. Expose session events through an API suitable for a future Studio UI.

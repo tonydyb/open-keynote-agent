@@ -65,14 +65,22 @@ All tests run without cloud credentials or API keys — the default `OMA_LLM_PRO
 
 Unit tests do not require Keynote, `osascript`, macOS GUI access, or special permissions. The `keynote_integration` marker gates tests that call real Keynote; they are skipped unless `RUN_KEYNOTE_INTEGRATION=1` is set.
 
-## Architecture (Keynote AppleScript Adapter — change 005)
+## Architecture (Keynote Adapter — changes 005 + 006)
 
 ### Keynote tool set (`applescript/` + `tools/keynote.py`)
 - `applescript/runner.py` — `ScriptRunner` protocol, `OsascriptRunner` (subprocess), `FakeScriptRunner` (tests)
-- `applescript/scripts.py` — AppleScript string builders; `applescript_string()` escapes all user-controlled values
-- `tools/keynote.py` — `keynote.*` tool handlers + `register_keynote_tools(registry, runner)`
+- `applescript/scripts.py` — AppleScript string builders; `applescript_string()` escapes all user-controlled values; includes `list_themes()`, `list_layouts()`, and theme variant of `create_document()`
+- `applescript/layout.py` — `_parse_newline_list()`, `LAYOUT_CANDIDATES`, `resolve_layout_name(semantic, available)`; do not put resolver logic in `scripts.py` or `tools/keynote.py`
+- `tools/keynote.py` — `keynote.*` tool handlers + `register_keynote_tools(registry, runner)`; imports resolver from `applescript/layout.py`; no `_LAYOUT_MAP`
 - CLI: `oka session --tools keynote` registers real tools; default `--tools demo` is unchanged
 - When `--tools keynote` is selected, macOS may prompt for Automation permission to control Keynote
+
+### Theme and layout discovery (change 006)
+- `keynote.list_themes` / `keynote.list_layouts` — non-mutating tools that force newline output via `AppleScript's text item delimiters`; never split on commas
+- `keynote.resolve_layout` — resolves semantic names (`title`, `title_body`, `blank`) to actual Keynote master slide names; fetches layouts from runner if not cached in context
+- `keynote.create_document` — now accepts optional `theme` parameter; records `context["keynote"]["theme"]` only after script success
+- `keynote.add_slide` — discovery-aware: reads `context["keynote"]["layouts"]` if present (no `list_layouts` call); fetches and caches layouts if absent
+- `Parchment` is the recommended built-in storybook theme when available
 
 ## Architecture (File Organizer Milestone)
 

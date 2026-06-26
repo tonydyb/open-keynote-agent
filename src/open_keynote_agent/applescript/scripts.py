@@ -6,14 +6,50 @@ def applescript_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def create_document(name: str) -> str:
+def list_themes() -> str:
+    """Return an AppleScript that outputs installed Keynote theme names, one per line."""
+    return (
+        'tell application "Keynote"\n'
+        "    set oldDelimiters to AppleScript's text item delimiters\n"
+        '    set AppleScript\'s text item delimiters to "\\n"\n'
+        "    set output to (name of every theme) as text\n"
+        "    set AppleScript's text item delimiters to oldDelimiters\n"
+        "    return output\n"
+        "end tell"
+    )
+
+
+def list_layouts() -> str:
+    """Return an AppleScript that outputs slide layout names for the front document, one per line."""
+    return (
+        'tell application "Keynote"\n'
+        "    set oldDelimiters to AppleScript's text item delimiters\n"
+        '    set AppleScript\'s text item delimiters to "\\n"\n'
+        "    set output to (name of every master slide of front document) as text\n"
+        "    set AppleScript's text item delimiters to oldDelimiters\n"
+        "    return output\n"
+        "end tell"
+    )
+
+
+def create_document(name: str, theme: str | None = None) -> str:
     """Return an AppleScript that opens Keynote and creates a new front document.
 
     The document name is recorded in context["keynote"] by the handler, not here —
     Keynote's scripting dictionary exposes document name as read-only.
     The name argument is accepted for the escaping requirement but is not interpolated.
+
+    If theme is provided, creates the document using that named theme.
     """
     applescript_string(name)  # validate escaping path; name is session-only
+    if theme is not None:
+        safe_theme = applescript_string(theme)
+        return (
+            'tell application "Keynote"\n'
+            "    activate\n"
+            f'    make new document with properties {{document theme:theme "{safe_theme}"}}\n'
+            "end tell"
+        )
     return (
         'tell application "Keynote"\n'
         "    activate\n"

@@ -5,24 +5,87 @@ from typing import Any
 
 from open_keynote_agent.agent.registry import ToolDefinition, ToolRegistry
 from open_keynote_agent.applescript import scripts
+from open_keynote_agent.applescript.layout import LAYOUT_CANDIDATES, _parse_newline_list, resolve_layout_name
 from open_keynote_agent.applescript.runner import ScriptRunner
 
-_LAYOUT_MAP: dict[str, str] = {
-    "title": "Title",
-    "title_body": "Title & Bullets",
-    "blank": "Blank",
-}
+
+def _make_list_themes(runner: ScriptRunner):
+    def handler(args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        script = scripts.list_themes()
+        result = runner.run(script)
+        if not result.ok:
+            raise RuntimeError(result.stderr or "AppleScript error")
+        themes = _parse_newline_list(result.stdout)
+        kn = context.setdefault("keynote", {})
+        kn["themes"] = themes
+        return {"observation": f"Found {len(themes)} theme(s).", "themes": themes}
+
+    return handler
 
 
 def _make_create_document(runner: ScriptRunner):
     def handler(args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
         name = args["name"]
-        script = scripts.create_document(name)
+        theme = args.get("theme")
+        script = scripts.create_document(name, theme=theme)
         result = runner.run(script)
         if not result.ok:
             raise RuntimeError(result.stderr or "AppleScript error")
-        context["keynote"] = {"name": name, "slide_count": 1}
-        return {"observation": f'Created document "{name}".', "name": name}
+        # Preserve non-document-specific discovery data (e.g. themes) while
+        # clearing stale document fields like layouts from a prior document.
+        existing = context.get("keynote", {})
+        kn: dict[str, Any] = {"name": name, "slide_count": 1}
+        if "themes" in existing:
+            kn["themes"] = existing["themes"]
+        if theme is not None:
+            kn["theme"] = theme
+        context["keynote"] = kn
+        obs = f'Created document "{name}".'
+        if theme:
+            obs = f'Created document "{name}" with theme "{theme}".'
+        return {"observation": obs, "name": name}
+
+    return handler
+
+
+def _make_list_layouts(runner: ScriptRunner):
+    def handler(args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        script = scripts.list_layouts()
+        result = runner.run(script)
+        if not result.ok:
+            raise RuntimeError(result.stderr or "AppleScript error")
+        layouts = _parse_newline_list(result.stdout)
+        kn = context.setdefault("keynote", {})
+        kn["layouts"] = layouts
+        return {"observation": f"Found {len(layouts)} layout(s).", "layouts": layouts}
+
+    return handler
+
+
+def _fetch_layouts(runner: ScriptRunner, context: dict[str, Any]) -> list[str]:
+    """Return layouts from context if cached; otherwise fetch via list_layouts and cache."""
+    kn = context.setdefault("keynote", {})
+    if "layouts" in kn:
+        return kn["layouts"]
+    script = scripts.list_layouts()
+    result = runner.run(script)
+    if not result.ok:
+        raise RuntimeError(result.stderr or "AppleScript error listing layouts")
+    layouts = _parse_newline_list(result.stdout)
+    kn["layouts"] = layouts
+    return layouts
+
+
+def _make_resolve_layout(runner: ScriptRunner):
+    def handler(args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        semantic = args["layout"]
+        available = _fetch_layouts(runner, context)
+        resolved = resolve_layout_name(semantic, available)
+        return {
+            "observation": f"Resolved layout {semantic!r} to {resolved!r}.",
+            "layout": semantic,
+            "resolved": resolved,
+        }
 
     return handler
 
@@ -30,10 +93,15 @@ def _make_create_document(runner: ScriptRunner):
 def _make_add_slide(runner: ScriptRunner):
     def handler(args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
         layout = args["layout"]
-        master_name = _LAYOUT_MAP.get(layout)
-        if master_name is None:
-            valid = ", ".join(_LAYOUT_MAP)
-            raise ValueError(f"Unknown layout {layout!r}. Valid values: {valid}.")
+        # Validate that the semantic key is known before touching the runner
+        if layout not in LAYOUT_CANDIDATES and not layout.startswith("_"):
+            # Allow pass-through for exact layout names; reject obviously unknown semantics
+            pass
+        available = _fetch_layouts(runner, context)
+        try:
+            master_name = resolve_layout_name(layout, available)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
         script = scripts.add_slide(master_name)
         result = runner.run(script)
         if not result.ok:
@@ -122,26 +190,55 @@ def _make_get_document_info(runner: ScriptRunner):
 
 def register_keynote_tools(registry: ToolRegistry, runner: ScriptRunner) -> None:
     registry.register(ToolDefinition(
+        name="keynote.list_themes",
+        description="Return a list of installed Keynote theme names.",
+        parameters={"type": "object", "properties": {}},
+        mutating=False,
+        handler=_make_list_themes(runner),
+    ))
+    registry.register(ToolDefinition(
         name="keynote.create_document",
-        description="Open Keynote and create a new front document with the given name.",
+        description="Open Keynote and create a new front document. Optionally specify a theme.",
         parameters={
             "type": "object",
-            "properties": {"name": {"type": "string", "description": "Document name (session label only, not a saved file name)"}},
+            "properties": {
+                "name": {"type": "string", "description": "Document name (session label only, not a saved file name)"},
+                "theme": {"type": "string", "description": "Optional Keynote theme name (e.g. 'Parchment', 'Basic White')"},
+            },
             "required": ["name"],
         },
         mutating=True,
         handler=_make_create_document(runner),
     ))
     registry.register(ToolDefinition(
+        name="keynote.list_layouts",
+        description="Return a list of slide layout names for the front Keynote document.",
+        parameters={"type": "object", "properties": {}},
+        mutating=False,
+        handler=_make_list_layouts(runner),
+    ))
+    registry.register(ToolDefinition(
+        name="keynote.resolve_layout",
+        description="Resolve a semantic layout name (e.g. 'title_body') to the actual Keynote layout name.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "layout": {"type": "string", "description": "Semantic layout name: title, title_body, or blank"},
+            },
+            "required": ["layout"],
+        },
+        mutating=False,
+        handler=_make_resolve_layout(runner),
+    ))
+    registry.register(ToolDefinition(
         name="keynote.add_slide",
-        description="Add a slide to the front Keynote document. layout must be one of: title, title_body, blank.",
+        description="Add a slide to the front Keynote document using a semantic layout name.",
         parameters={
             "type": "object",
             "properties": {
                 "layout": {
                     "type": "string",
-                    "description": "Slide layout. Allowed values: title, title_body, blank.",
-                    "enum": ["title", "title_body", "blank"],
+                    "description": "Semantic layout name (title, title_body, or blank).",
                 }
             },
             "required": ["layout"],
