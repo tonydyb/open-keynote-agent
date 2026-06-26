@@ -67,6 +67,17 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 
 When running `oka session --tools keynote`, macOS may prompt for permission to control Keynote via Automation. Grant it when asked.
 
+## Architecture (Storybook Renderer — change 009)
+
+### Renderer package (`renderers/`)
+- `renderers/templates.py` — `LAYOUT_FOR_KIND`, `FALLBACK_EMOJI`, `calls_for_slide(slide)` → `list[ProposedToolCall]`; 1280×720 canvas constants; chapter alternates left/right by slide index
+- `renderers/storybook.py` — `render_storybook_deck(deck, registry, state, output_dir, export_pdf)` → `RenderResult`
+- `RenderResult.tool_results: list[dict]` — serialized records from every `execute_plan` call; written to `tool_results.jsonl` by the CLI
+- Flow: `list_themes` → select theme (deck.theme > Parchment > Basic White > first) → `create_document` → `list_layouts` → slides (skip `add_slide` for slide 1; call it for slides 2..N) → optional `export_pdf`
+- First `SlideSpec.kind` must be `"cover"` or `ValueError` is raised before any Keynote mutation
+- No LLM calls; no raw AppleScript; shapes limited to `"rectangle"` without `fill_color`
+- CLI: `oka render-storybook <deck_spec.json> [--output PATH] [--no-pdf]`
+
 ## Architecture (Deck Spec Planner — change 008)
 
 ### Deck package (`deck/`)

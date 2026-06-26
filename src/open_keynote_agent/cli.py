@@ -21,6 +21,8 @@ from open_keynote_agent.tools.demo import register_demo_tools
 from open_keynote_agent.tools.keynote import register_keynote_tools
 from open_keynote_agent.deck.planner import plan_deck_spec
 from open_keynote_agent.deck.outline import render_deck_outline
+from open_keynote_agent.deck.schema import DeckSpec
+from open_keynote_agent.renderers.storybook import render_storybook_deck
 
 app = typer.Typer(help="Open Keynote Agent CLI")
 console = Console()
@@ -381,6 +383,84 @@ def deck_plan(
 
     console.print(outline_text)
     console.print(f"[dim]Output written to {out_dir}[/]")
+
+
+@app.command(name="render-storybook")
+def render_storybook(
+    deck_spec_path: Path = typer.Argument(..., help="Path to deck_spec.json produced by oka deck-plan."),
+    output: Path | None = typer.Option(None, "--output", help="Output directory (default: unique dir under .runs/)."),
+    no_pdf: bool = typer.Option(False, "--no-pdf", help="Skip PDF export."),
+) -> None:
+    """Render a validated DeckSpec into a Keynote storybook presentation."""
+    if not deck_spec_path.exists() or not deck_spec_path.is_file():
+        console.print(f"[red]Error:[/] File not found: {deck_spec_path}")
+        raise typer.Exit(code=1)
+
+    try:
+        deck = DeckSpec.model_validate_json(deck_spec_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        console.print(f"[red]Error:[/] Invalid DeckSpec: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if output is None:
+        base = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-storybook"
+        candidate = Path(".runs") / base
+        suffix = 0
+        while candidate.exists():
+            suffix += 1
+            candidate = Path(".runs") / f"{base}-{suffix}"
+        candidate.mkdir(parents=True)
+        out_dir = candidate
+        default_dir_created: Path | None = candidate
+    else:
+        out_dir = output
+        out_dir.mkdir(parents=True, exist_ok=True)
+        default_dir_created = None
+
+    for name in ("render_result.json", "tool_results.jsonl"):
+        if (out_dir / name).exists():
+            console.print(f"[red]Error:[/] Output file already exists: {out_dir / name}")
+            if default_dir_created is not None:
+                default_dir_created.rmdir()
+            raise typer.Exit(code=1)
+
+    pdf_file = out_dir / f"{deck.title}.pdf"
+    if not no_pdf and pdf_file.exists():
+        console.print(f"[red]Error:[/] PDF already exists: {pdf_file}")
+        if default_dir_created is not None:
+            default_dir_created.rmdir()
+        raise typer.Exit(code=1)
+
+    console.print("[yellow]Note: macOS may prompt for permission to control Keynote via Automation.[/]")
+
+    from open_keynote_agent.agent.registry import ToolRegistry
+    from open_keynote_agent.agent.session import SessionState
+
+    registry = ToolRegistry()
+    register_keynote_tools(registry, OsascriptRunner())
+    state = SessionState()
+
+    try:
+        result = render_storybook_deck(
+            deck, registry, state,
+            output_dir=out_dir,
+            export_pdf=not no_pdf,
+        )
+    except Exception as exc:
+        console.print(f"[red]Render error:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    (out_dir / "render_result.json").write_text(
+        json.dumps(result.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    with (out_dir / "tool_results.jsonl").open("w", encoding="utf-8") as fh:
+        for record in result.tool_results:
+            fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+
+    console.print(f"[bold green]Rendered:[/] {result.slide_count} slides")
+    console.print(f"[dim]Output: {out_dir}[/]")
+    if result.pdf_path:
+        console.print(f"[dim]PDF: {result.pdf_path}[/]")
 
 
 if __name__ == "__main__":

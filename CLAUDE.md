@@ -65,6 +65,19 @@ All tests run without cloud credentials or API keys — the default `OMA_LLM_PRO
 
 Unit tests do not require Keynote, `osascript`, macOS GUI access, or special permissions. The `keynote_integration` marker gates tests that call real Keynote; they are skipped unless `RUN_KEYNOTE_INTEGRATION=1` is set.
 
+## Architecture (Storybook Renderer — change 009)
+
+### Renderer package (`renderers/`)
+- `renderers/templates.py` — `LAYOUT_FOR_KIND`, `FALLBACK_EMOJI`, `calls_for_slide(slide)` → `list[ProposedToolCall]`; all coordinates are constants on a 1280×720 canvas; chapter slides alternate visual left/right by index
+- `renderers/storybook.py` — `render_storybook_deck(deck, registry, state, output_dir, export_pdf)` → `RenderResult`; `RenderResult` holds `tool_results: list[dict]` for `tool_results.jsonl`
+- The renderer does NOT call any LLM and does NOT generate raw AppleScript
+- Flow: `list_themes` → select theme → `create_document` → `list_layouts` → for each slide: (`add_slide` for slides 2..N only; `set_slide_title`; template object calls) → `export_pdf`
+- Slide 1 is the Keynote default slide from `create_document`; never call `add_slide` for it
+- `render_storybook_deck` raises `ValueError` if the first `SlideSpec.kind` is not `"cover"`
+- Shapes: only `"rectangle"` is emitted; no `fill_color`, no `rounded_rectangle`/`oval`/`line`
+- CLI: `oka render-storybook <deck_spec.json> [--output PATH] [--no-pdf]`
+- Default output: `.runs/<YYYYMMDDTHHMMSSZ>-storybook/`
+
 ## Architecture (Deck Spec Planner — change 008)
 
 ### Deck package (`deck/`)

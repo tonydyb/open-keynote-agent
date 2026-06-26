@@ -187,6 +187,35 @@ This command does **not** open Keynote and does **not** call any `keynote.*` too
 The next change (`009`) will use the `DeckSpec` to render slides using deterministic
 layout templates.
 
+## Storybook Renderer
+
+`oka render-storybook` converts a `deck_spec.json` produced by `oka deck-plan` into a real
+Keynote presentation, and optionally exports a PDF:
+
+```bash
+# Step 1: plan
+oka deck-plan "请为我制作一个关于《三只小猪》的8页童话绘本风Keynote" --slides 8 --output /tmp/pigs-plan
+
+# Step 2: render (opens Keynote)
+oka render-storybook /tmp/pigs-plan/deck_spec.json --output /tmp/pigs-rendered
+```
+
+Options:
+
+| Option | Default | Description |
+|---|---|---|
+| `--output` | `.runs/<timestamp>-storybook/` | Output directory |
+| `--no-pdf` | off | Skip PDF export |
+
+The command requires macOS Automation permission to control Keynote.
+
+**Limitations (change 009 MVP):**
+- No image insertion.
+- Shapes limited to `rectangle` only — no `rounded_rectangle`, `oval`, or `line`.
+- No shape fill color (`fill_color` is deferred until a verified Keynote AppleScript path exists).
+- No custom fonts or animation.
+- No LLM is called — the renderer is fully deterministic.
+
 ## Keynote Roadmap
 
 The next project direction is an interactive Keynote agent:
@@ -196,5 +225,5 @@ The next project direction is an interactive Keynote agent:
 3. ✅ Theme and layout discovery (`keynote.list_themes`, `keynote.list_layouts`, `keynote.resolve_layout`).
 4. ✅ Object tools (`keynote.add_text_box`, `keynote.add_emoji_text`, `keynote.add_shape`, `keynote.move_object`, `keynote.resize_object`).
 5. ✅ Deck spec planner (`oka deck-plan`, `DeckSpec`, `plan_deck_spec`, `render_deck_outline`).
-6. Add storybook renderer: `DeckSpec` → Keynote layout templates → PDF export.
+6. ✅ Storybook renderer (`oka render-storybook`, `render_storybook_deck`, deterministic layout templates).
 7. Expose session events through an API suitable for a future Studio UI.
