@@ -18,7 +18,7 @@ def _prompt_hash(art_spec: SlideArtSpec, provider_name: str) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    return hashlib.sha256((canonical + provider_name).encode()).hexdigest()[:16]
+    return hashlib.sha256(f"{provider_name}\n{canonical}".encode("utf-8")).hexdigest()[:16]
 
 
 def _load_existing_manifest(manifest_path: Path) -> ImageManifest | None:

@@ -73,8 +73,7 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 - `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only 1×1 PNG); `BedrockImageProvider` (Nova Canvas / Titan Image via boto3); `load_image_provider_from_env(provider_name)`
 - `images/generator.py` — `generate_image_assets(deck, provider, *, output_dir, force=False)` → `ImageManifest`
 - `SlideArtSpec.asset_filename` is a `@computed_field` derived from `slide_index` — e.g. `slide_03.png`
-- Prompt hash: `sha256(json.dumps(spec.model_dump(), sort_keys=True, ensure_ascii=False) + provider_name).hexdigest()[:16]`
-- Prompt hash: `sha256(json.dumps(spec.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",",":")) + provider_name).hexdigest()[:16]`
+- Prompt hash: `sha256(f"{provider_name}\n{canonical_json}".encode("utf-8")).hexdigest()[:16]`, where `canonical_json` is `json.dumps(spec.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":"))`
 - Cache: `cache_dir=None` (library default) disables shared cache; CLI passes `Path(".runs/image-cache/<provider>")` so repeated CLI runs share cache across timestamped dirs; also falls back to matching manifest entry in same `output_dir`
 - `force=True` bypasses both shared cache and manifest fallback
 - Manifest and art spec paths are relative to `output_dir`; `assets/` stores PNGs

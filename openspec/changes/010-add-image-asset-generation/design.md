@@ -186,10 +186,10 @@ The fake provider should make tests prove:
 
 ### Provider Loader And Real Providers
 
-The implementation must support these providers:
+The implementation must support these providers in this change:
 
 ```text
-OKA_IMAGE_PROVIDER=fake|bedrock|openai
+OKA_IMAGE_PROVIDER=fake|bedrock
 ```
 
 The `OKA_` prefix is intentional for new image settings because the CLI is now `oka`. Existing `OMA_LLM_PROVIDER` remains a legacy LLM setting and is not renamed in this change.
@@ -198,7 +198,7 @@ Provider selection:
 
 - `fake` is the default provider when `OKA_IMAGE_PROVIDER` is unset.
 - `bedrock` is the primary real provider and must be selected explicitly with `OKA_IMAGE_PROVIDER=bedrock` or `--provider bedrock`.
-- `openai` is optional and may be implemented after `bedrock`.
+- `openai` is reserved for a future optional provider and is not required in this change.
 
 Provider defaults:
 
@@ -219,7 +219,7 @@ Bedrock provider requirements:
 
 Optional OpenAI provider requirements:
 
-- `OpenAIImageProvider` is optional for this change
+- `OpenAIImageProvider` is reserved for a future change
 - if implemented, load model id from `OKA_IMAGE_MODEL`
 - fail clearly when `OPENAI_API_KEY` or model configuration is missing
 

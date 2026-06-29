@@ -49,13 +49,14 @@
 - [x] `BedrockImageProvider` fails clearly when `OKA_IMAGE_MODEL` is missing.
 - [x] Add provider loader `load_image_provider_from_env(provider_name)` using `OKA_IMAGE_PROVIDER` with default `fake`.
 - [x] Loader supports `fake` and `bedrock`; raises `UnsupportedImageProviderError` for unknown names.
+- [x] Treat `openai` as a reserved future provider until `OpenAIImageProvider` is implemented.
 - [x] `BedrockImageProvider` lazy-imports boto3; raises `ImportError` with clear message if absent.
 - [x] Add clear error for unknown or unconfigured providers.
 - [x] Ensure tests never call real provider.
 
 ## 5. Generation And Cache
 
-- [x] Implement prompt hash: `sha256(json.dumps(spec.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",",":")) + provider_name).hexdigest()[:16]`.
+- [x] Implement prompt hash: `sha256(f"{provider_name}\n{canonical_json}").hexdigest()[:16]`.
 - [x] Implement `generate_image_assets(deck, provider, *, output_dir, force=False, cache_dir=None)`.
 - [x] Create `<output_dir>/assets/`.
 - [x] Save files as `assets/slide_01.png`, `assets/slide_02.png`, etc.

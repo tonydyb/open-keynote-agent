@@ -235,7 +235,7 @@ provider 失败时应该抛出清晰异常，不要返回半成功状态。
 010 支持的 provider：
 
 ```text
-OKA_IMAGE_PROVIDER=fake|bedrock|openai
+OKA_IMAGE_PROVIDER=fake|bedrock
 ```
 
 这里使用 `OKA_` 前缀是有意的，因为现在 CLI 已经是 `oka`。已有的 `OMA_LLM_PROVIDER` 暂时作为历史 LLM 配置保留，不在 010 里机械重命名。
@@ -244,7 +244,7 @@ provider 策略：
 
 - `fake`：`OKA_IMAGE_PROVIDER` 未设置时的默认 provider，适合测试和无网络本地开发。
 - `bedrock`：主要真实 provider，需要通过 `OKA_IMAGE_PROVIDER=bedrock` 或 `--provider bedrock` 显式选择。
-- `openai`：可选第二 provider，可以后续实现。
+- `openai`：预留给后续可选 provider；010 当前不要求实现。
 
 默认行为：
 

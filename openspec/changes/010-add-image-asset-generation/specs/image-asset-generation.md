@@ -169,15 +169,16 @@ The system SHALL implement `FakeImageProvider`.
 
 The system SHALL implement `BedrockImageProvider` as the primary explicit real image provider.
 
-The system MAY implement `OpenAIImageProvider` as an optional secondary real image provider.
+The system MAY implement `OpenAIImageProvider` in a future change as an optional secondary real image provider.
 
-The provider loader SHALL support:
+The provider loader SHALL support these values in this change:
 
 ```text
 fake
 bedrock
-openai
 ```
+
+`openai` is reserved as a future provider value until `OpenAIImageProvider` is implemented.
 
 When `OKA_IMAGE_PROVIDER` is unset, the provider loader SHALL default to `fake`.
 
@@ -208,7 +209,7 @@ New image provider environment variables SHALL use the `OKA_` prefix. The provid
 OKA_IMAGE_PROVIDER
 ```
 
-Supported values SHALL include `fake`, `bedrock`, and `openai`.
+Supported values SHALL include `fake` and `bedrock`. `openai` is reserved for future implementation and SHALL NOT be documented as currently supported until implemented.
 
 The legacy `OMA_LLM_PROVIDER` variable remains an LLM setting and SHALL NOT be used for image provider selection.
 

@@ -5,6 +5,7 @@ No network, real image API credentials, Keynote, osascript, or macOS Automation 
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -360,6 +361,21 @@ class TestPromptHash:
     def test_different_provider_different_hash(self):
         spec = SlideArtSpec(slide_index=1, slide_title="x", image=ImageSpec(prompt="aaa"))
         assert _prompt_hash(spec, "fake") != _prompt_hash(spec, "bedrock")
+
+    def test_matches_documented_formula(self):
+        spec = SlideArtSpec(
+            slide_index=1,
+            slide_title="Cover",
+            image=ImageSpec(prompt="test", seed=42),
+        )
+        canonical = json.dumps(
+            spec.image.model_dump(mode="json"),
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        expected = hashlib.sha256(f"fake\n{canonical}".encode("utf-8")).hexdigest()[:16]
+        assert _prompt_hash(spec, "fake") == expected
 
 
 # ---------------------------------------------------------------------------
