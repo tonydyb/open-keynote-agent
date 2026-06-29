@@ -63,13 +63,14 @@ class SlideArtSpec(BaseModel):
     slide_index: int
     slide_title: str
     image: ImageSpec
-    asset_filename: str
+    asset_filename: str  # computed from slide_index
 ```
 
 Validation:
 
 - `slide_index >= 1`.
 - `asset_filename` must be deterministic and match `slide_{index:02d}.png`.
+- `asset_filename` is a Pydantic `@computed_field`, not caller input. Do not validate it with `@field_validator`; it depends on `slide_index` and should be derived to prevent mismatches.
 
 ### ImageAsset
 
@@ -91,6 +92,12 @@ class ImageManifest(BaseModel):
     assets_dir: str
     assets: list[ImageAsset]
 ```
+
+Manifest paths are portable:
+
+- `assets_dir` is the relative string `"assets"`.
+- `ImageAsset.path` is relative to the directory containing `image_manifest.json`, for example `"assets/slide_01.png"`.
+- Shared cache paths are not recorded as the primary asset path.
 
 ## Art Spec Planning
 
@@ -145,6 +152,26 @@ class ImageProvider(Protocol):
 
 `generate` writes a PNG to `output_path`.
 
+`name` is an instance-visible provider identifier. Implementations may satisfy it with a class-level constant:
+
+```python
+class FakeImageProvider:
+    name = "fake"
+```
+
+Do not make provider selection depend on class names.
+
+Define a concrete provider result:
+
+```python
+class ImageGenerationResult(BaseModel):
+    provider: str
+    path: str
+    bytes_written: int
+```
+
+`ImageGenerationResult.path` is the path actually written by the provider as a string. The provider should raise an exception with a clear message on failure instead of returning partial success.
+
 ### FakeImageProvider
 
 `FakeImageProvider` is required.
@@ -157,17 +184,49 @@ The fake provider should make tests prove:
 - PNG signature is valid
 - no network/API credentials are required
 
-### Optional Real Provider
+### Provider Loader And Real Providers
 
-The implementation may add one real provider behind configuration:
+The implementation must support these providers:
 
 ```text
-OKA_IMAGE_PROVIDER=fake|<real-provider-name>
+OKA_IMAGE_PROVIDER=fake|bedrock|openai
 ```
 
-Real provider requirements:
+The `OKA_` prefix is intentional for new image settings because the CLI is now `oka`. Existing `OMA_LLM_PROVIDER` remains a legacy LLM setting and is not renamed in this change.
 
-- optional dependency or stdlib-only HTTP implementation
+Provider selection:
+
+- `fake` is the default provider when `OKA_IMAGE_PROVIDER` is unset.
+- `bedrock` is the primary real provider and must be selected explicitly with `OKA_IMAGE_PROVIDER=bedrock` or `--provider bedrock`.
+- `openai` is optional and may be implemented after `bedrock`.
+
+Provider defaults:
+
+```text
+OKA_IMAGE_PROVIDER unset     # defaults to fake
+OKA_IMAGE_PROVIDER=fake      # explicit no-network/test provider
+OKA_IMAGE_PROVIDER=bedrock   # explicit primary real provider
+```
+
+Bedrock provider requirements:
+
+- implement `BedrockImageProvider`
+- load AWS credentials/region using the existing Bedrock/AWS environment conventions where possible
+- read image model id from `OKA_IMAGE_MODEL`
+- do not hardcode one Bedrock image model as the only supported model
+- fail clearly when AWS credentials, region, model access, or provider configuration is missing
+- isolate Bedrock request/response shape in the provider adapter
+
+Optional OpenAI provider requirements:
+
+- `OpenAIImageProvider` is optional for this change
+- if implemented, load model id from `OKA_IMAGE_MODEL`
+- fail clearly when `OPENAI_API_KEY` or model configuration is missing
+
+General real provider requirements:
+
+- if the provider needs third-party packages, place them in a dedicated `images` optional dependency group in `pyproject.toml`
+- if no optional dependency is added, the real provider must use stdlib-only HTTP or existing project dependencies
 - no import failure when credentials are absent
 - clear error if selected provider is not configured
 - writes PNG bytes to the requested output path
@@ -179,26 +238,46 @@ The provider-specific API surface must be isolated in the provider adapter.
 
 The generator must avoid regenerating existing images when the prompt/config has not changed.
 
-Define:
+Define canonical prompt hashing exactly:
 
 ```python
-prompt_hash = sha256(canonical ImageSpec JSON + provider name).hexdigest()[:16]
+canonical = json.dumps(
+    spec.model_dump(mode="json"),
+    sort_keys=True,
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
+prompt_hash = sha256(f"{provider.name}\n{canonical}".encode("utf-8")).hexdigest()[:16]
 ```
+
+The provider name is part of the hash, so changing providers invalidates the cache.
+
+Shared cache is optional and only enabled when the caller supplies `cache_dir`.
+
+```text
+<cache_dir>/<prompt_hash>.png
+```
+
+When `cache_dir` is `None`, library calls do not use a shared cache. This avoids accidental cross-test or cross-call cache pollution. Same-output-directory manifest reuse still works.
 
 For each slide:
 
 1. Compute prompt hash.
-2. Check existing `image_manifest.json`.
-3. If matching slide index, provider, prompt hash, and asset path exists, reuse it.
-4. Otherwise call provider and update manifest entry.
+2. If `cache_dir` is supplied, check the shared cache path for the provider/hash.
+3. Check existing `image_manifest.json` when present for same-output-dir reuse.
+4. If a matching cached file exists, copy it to the current run's asset path.
+5. Otherwise call provider to write the current run asset file, then populate `cache_dir` when supplied.
+6. Update manifest entry.
 
 Cache hits should be recorded as `cached=True`.
 
 New generations should be recorded as `cached=False`.
 
+`force=True` bypasses both shared-cache and same-output-dir manifest reuse, calls the provider again, replaces the current run asset file, and refreshes the shared cache file when `cache_dir` is supplied.
+
 ## Asset Paths
 
-Assets are saved under:
+Run assets are saved under:
 
 ```text
 <output_dir>/assets/
@@ -214,7 +293,23 @@ slide_02.png
 
 The generator should create directories as needed.
 
-It should refuse to write outside `output_dir`.
+It should refuse to write run artifacts outside `output_dir`. The explicit exception is a caller-supplied `cache_dir`.
+
+`art_spec.json` contains:
+
+```json
+{
+  "deck_title": "...",
+  "slides": [
+    {
+      "slide_index": 1,
+      "slide_title": "...",
+      "image": { "...": "..." },
+      "asset_filename": "slide_01.png"
+    }
+  ]
+}
+```
 
 ## Generation Function
 
@@ -226,6 +321,8 @@ def generate_image_assets(
     provider: ImageProvider,
     *,
     output_dir: Path,
+    force: bool = False,
+    cache_dir: Path | None = None,
 ) -> ImageManifest: ...
 ```
 
@@ -239,7 +336,9 @@ Behavior:
 6. Write `image_manifest.json`.
 7. Return `ImageManifest`.
 
-Manifest writes should be atomic enough for local CLI use: write to a temporary file and replace.
+If `cache_dir` is `None`, shared cache is disabled.
+
+Write `image_manifest.json` atomically enough for local CLI use by writing `image_manifest.json.tmp` in the same directory and then calling `Path.replace()` to replace the final manifest.
 
 ## CLI Integration
 
@@ -272,14 +371,16 @@ This command must not open Keynote and must not call `keynote.*`.
 Unit tests should cover:
 
 - ImageSpec validation
-- SlideArtSpec filename validation
+- SlideArtSpec computed filename behavior
 - deterministic prompt construction
 - one art spec per DeckSpec slide
 - fake provider writes valid PNG
 - manifest is written
 - cache hit avoids provider call
+- shared cache hits when `cache_dir` is supplied
 - changed prompt invalidates cache
 - `--force` regenerates
+- CLI `--force` bypasses any configured cache and calls the provider again
 - CLI validates DeckSpec input
 - CLI writes assets and manifest
 - CLI does not import/call Keynote tools

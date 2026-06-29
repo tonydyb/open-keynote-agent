@@ -26,7 +26,8 @@ To approach the quality of children's storybook examples, the system needs gener
 - Generate one illustration prompt per `SlideSpec`.
 - Add an `ImageProvider` abstraction.
 - Implement a deterministic `FakeImageProvider` for tests.
-- Support an optional real provider behind configuration.
+- Implement `BedrockImageProvider` as the primary explicit real provider.
+- Optionally support `OpenAIImageProvider` as a secondary provider.
 - Save PNG assets under `.runs/.../assets/slide_01.png`.
 - Write an `image_manifest.json`.
 - Cache generated assets and avoid regenerating unchanged prompts.
@@ -57,6 +58,13 @@ Generate image assets:
 uv run oka generate-images /tmp/three-pigs-plan/deck_spec.json --output /tmp/three-pigs-art
 ```
 
+For real generation, use Bedrock:
+
+```bash
+OKA_IMAGE_PROVIDER=bedrock OKA_IMAGE_MODEL=<bedrock-image-model-id> \
+  uv run oka generate-images /tmp/three-pigs-plan/deck_spec.json --output /tmp/three-pigs-art
+```
+
 The command writes:
 
 ```text
@@ -76,6 +84,7 @@ Future renderer changes can consume these PNGs and insert them into Keynote.
 - A valid `DeckSpec` can produce one `SlideArtSpec` per slide.
 - Each slide art spec includes a deterministic `ImageSpec`.
 - Fake provider generates valid local PNG files.
+- Bedrock provider can generate PNG files when configured with AWS credentials, region, model access, and `OKA_IMAGE_MODEL`.
 - Existing files are reused when prompt/config hash matches.
 - Manifest records prompt, provider, hash, asset path, and cache status.
 - Unit tests run without network, API keys, Keynote, or macOS Automation.

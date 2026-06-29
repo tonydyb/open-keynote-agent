@@ -47,7 +47,8 @@ DeckSpec -> Keynote -> PDF
 - 从 `DeckSpec` 生成每页 image prompt。
 - 定义 `ImageProvider` 协议。
 - 实现 `FakeImageProvider`。
-- 可选实现一个真实图片 provider。
+- 实现 `BedrockImageProvider` 作为默认真实图片 provider。
+- 可选实现 `OpenAIImageProvider` 作为第二真实 provider。
 - 保存 PNG 到 `assets/slide_01.png`。
 - 写 `art_spec.json`。
 - 写 `image_manifest.json`。
@@ -130,6 +131,8 @@ class SlideArtSpec(BaseModel):
 - `slide_index >= 1`
 - `asset_filename == slide_{index:02d}.png`
 
+注意：`asset_filename` 应该用 Pydantic `@computed_field` 从 `slide_index` 推导出来，不应该让调用方自己传。这样可以避免 `slide_index=1` 但 `asset_filename="slide_02.png"` 这种不一致。
+
 例如：
 
 ```text
@@ -190,6 +193,26 @@ class ImageProvider(Protocol):
 
 provider 负责把 PNG 写到指定路径。
 
+`name` 是 provider 的稳定名字，代码里要能通过 `provider.name` 读到。实现时可以用 class-level constant：
+
+```python
+class FakeImageProvider:
+    name = "fake"
+```
+
+provider loader 不应该依赖 Python class name 来判断 provider 类型。
+
+`ImageGenerationResult` 是一个明确模型，不是可选的临时返回值：
+
+```python
+class ImageGenerationResult(BaseModel):
+    provider: str
+    path: str
+    bytes_written: int
+```
+
+provider 失败时应该抛出清晰异常，不要返回半成功状态。
+
 ## 10. FakeImageProvider
 
 `FakeImageProvider` 是必做的。
@@ -207,22 +230,55 @@ provider 负责把 PNG 写到指定路径。
 - PNG signature 正确。
 - 没有调用真实 API。
 
-## 11. 可选真实 Provider
+## 11. Provider：默认 Fake，显式 Bedrock，可选 OpenAI
 
-实现可以支持一个真实 provider，例如通过：
+010 支持的 provider：
 
 ```text
-OKA_IMAGE_PROVIDER=fake|<real-provider-name>
+OKA_IMAGE_PROVIDER=fake|bedrock|openai
 ```
 
-真实 provider 必须隔离在 adapter 里。
+这里使用 `OKA_` 前缀是有意的，因为现在 CLI 已经是 `oka`。已有的 `OMA_LLM_PROVIDER` 暂时作为历史 LLM 配置保留，不在 010 里机械重命名。
+
+provider 策略：
+
+- `fake`：`OKA_IMAGE_PROVIDER` 未设置时的默认 provider，适合测试和无网络本地开发。
+- `bedrock`：主要真实 provider，需要通过 `OKA_IMAGE_PROVIDER=bedrock` 或 `--provider bedrock` 显式选择。
+- `openai`：可选第二 provider，可以后续实现。
+
+默认行为：
+
+```text
+OKA_IMAGE_PROVIDER 未设置 -> fake
+真实生成 -> OKA_IMAGE_PROVIDER=bedrock
+```
+
+Bedrock provider 必须隔离在 adapter 里。
 
 要求：
 
-- 没配置 credentials 时不能影响普通测试。
-- 选择真实 provider 但配置不完整时，要给清晰错误。
-- 测试不能调用真实 provider。
+- 实现 `BedrockImageProvider`。
+- 从 `OKA_IMAGE_MODEL` 读取 Bedrock image model id。
+- 尽量复用现有 AWS/Bedrock credentials 和 region 约定。
+- 不要把唯一支持模型 hardcode 成某一个 Bedrock model。
+- AWS credentials、region、model access 或配置缺失时，要给清晰错误。
+- 测试不能调用 Bedrock。
 - 输出必须写成 PNG。
+
+OpenAI provider 是可选的。如果实现：
+
+- 实现 `OpenAIImageProvider`。
+- 从 `OKA_IMAGE_MODEL` 读取 OpenAI image model id。
+- `OPENAI_API_KEY` 或 model 配置缺失时，要给清晰错误。
+
+如果真实 provider 需要第三方包，必须在 `pyproject.toml` 里新增专门的 optional dependency group：
+
+```toml
+[project.optional-dependencies]
+images = [...]
+```
+
+如果不加 `images` extra，那么真实 provider 只能使用 stdlib HTTP 或项目已经有的依赖。
 
 这层不要和 Keynote 绑定。
 
@@ -236,6 +292,26 @@ hash 规则：
 prompt_hash = sha256(canonical ImageSpec JSON + provider name)[:16]
 ```
 
+其中 canonical JSON 必须固定为：
+
+```python
+canonical = json.dumps(
+    spec.model_dump(mode="json"),
+    sort_keys=True,
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
+prompt_hash = sha256(f"{provider.name}\n{canonical}".encode("utf-8")).hexdigest()[:16]
+```
+
+010 只有在调用方传入 `cache_dir` 时才使用共享缓存：
+
+```text
+<cache_dir>/<prompt_hash>.png
+```
+
+如果 `cache_dir is None`，库函数不会使用共享缓存，避免测试或不同调用之间互相污染。同一个 `output_dir` 内的 manifest 复用仍然有效。
+
 如果已有 manifest 中某页满足：
 
 - slide index 一样。
@@ -243,7 +319,11 @@ prompt_hash = sha256(canonical ImageSpec JSON + provider name)[:16]
 - prompt hash 一样。
 - asset path 存在。
 
-就直接复用，不再调用 provider。
+或者在传入 `cache_dir` 时，共享缓存里已经有对应 provider/hash 的 PNG，就直接复用，不再调用 provider。复用时要把共享缓存中的 PNG 拷贝到本次 run 的：
+
+```text
+assets/slide_XX.png
+```
 
 manifest 中记录：
 
@@ -265,6 +345,8 @@ manifest 中记录：
 
 `--force` 可以强制重新生成。
 
+`--force` 会绕过共享缓存和当前 output manifest，重新调用 provider，并替换当前 run 的 asset 文件；如果传入了 `cache_dir`，也刷新共享缓存文件。
+
 ## 13. generate_image_assets
 
 核心函数：
@@ -276,9 +358,12 @@ def generate_image_assets(
     *,
     output_dir: Path,
     force: bool = False,
+    cache_dir: Path | None = None,
 ) -> ImageManifest:
     ...
 ```
+
+如果 `cache_dir is None`，共享缓存关闭。
 
 流程：
 
@@ -299,6 +384,46 @@ def generate_image_assets(
 ```
 
 不能写到 `output_dir` 外面。
+
+唯一例外是调用方显式传入的 `cache_dir`。run artifact，包括 `art_spec.json`、`image_manifest.json`、`assets/slide_XX.png`，都必须在 `output_dir` 内。
+
+`art_spec.json` 内容固定为：
+
+```json
+{
+  "deck_title": "...",
+  "slides": [
+    {
+      "slide_index": 1,
+      "slide_title": "...",
+      "image": {},
+      "asset_filename": "slide_01.png"
+    }
+  ]
+}
+```
+
+`image_manifest.json` 里的路径要可移植：
+
+```json
+{
+  "assets_dir": "assets",
+  "assets": [
+    {
+      "path": "assets/slide_01.png"
+    }
+  ]
+}
+```
+
+也就是说，`assets_dir` 和 `path` 都是相对于 `image_manifest.json` 所在目录的相对路径，不存绝对路径。
+
+写 manifest 时使用本地 CLI 足够安全的原子写：
+
+```text
+先写 image_manifest.json.tmp
+再用 Path.replace() 替换 image_manifest.json
+```
 
 ## 14. CLI：oka generate-images
 
@@ -350,6 +475,8 @@ three-pigs-art/
 
 后续 012 可以读取 `image_manifest.json`，把 PNG 插入 Keynote。
 
+如果调用方传入 `cache_dir`，它不是某一次 run 的正式输出，只用于避免重复生成。
+
 ## 16. 测试要求
 
 测试必须不依赖：
@@ -369,8 +496,10 @@ three-pigs-art/
 - fake provider 写 PNG。
 - manifest 输出。
 - cache hit 不调用 provider。
+- 默认新建 timestamp output 目录时，也能通过共享缓存命中。
 - prompt 变化导致 cache miss。
 - `--force` 重新生成。
+- CLI 层 `--force` 也要有测试，证明它会绕过共享缓存并重新调用 provider。
 - CLI 写 assets 和 manifest。
 - CLI 不调用 Keynote。
 

@@ -65,6 +65,26 @@ All tests run without cloud credentials or API keys — the default `OMA_LLM_PRO
 
 Unit tests do not require Keynote, `osascript`, macOS GUI access, or special permissions. The `keynote_integration` marker gates tests that call real Keynote; they are skipped unless `RUN_KEYNOTE_INTEGRATION=1` is set.
 
+## Architecture (Image Asset Generation — change 010)
+
+### Image package (`images/`)
+- `images/schema.py` — `ImageSpec`, `SlideArtSpec`, `ImageAsset`, `ImageManifest` (Pydantic v2, `extra="forbid"`)
+- `images/planner.py` — `build_slide_art_specs(deck)` → `list[SlideArtSpec]`; deterministic, no LLM
+- `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only 1×1 PNG); `BedrockImageProvider` (Nova Canvas / Titan Image via boto3); `load_image_provider_from_env(provider_name)`
+- `images/generator.py` — `generate_image_assets(deck, provider, *, output_dir, force=False)` → `ImageManifest`
+- `SlideArtSpec.asset_filename` is a `@computed_field` derived from `slide_index` — e.g. `slide_03.png`
+- Prompt hash: `sha256(json.dumps(spec.model_dump(), sort_keys=True, ensure_ascii=False) + provider_name).hexdigest()[:16]`
+- Prompt hash: `sha256(json.dumps(spec.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",",":")) + provider_name).hexdigest()[:16]`
+- Cache: `cache_dir=None` (library default) disables shared cache; CLI passes `Path(".runs/image-cache/<provider>")` so repeated CLI runs share cache across timestamped dirs; also falls back to matching manifest entry in same `output_dir`
+- `force=True` bypasses both shared cache and manifest fallback
+- Manifest and art spec paths are relative to `output_dir`; `assets/` stores PNGs
+- `art_spec.json` structure: `{"deck_title": ..., "slides": [SlideArtSpec, ...]}`
+- Writes are atomic: `<file>.tmp` → `Path.replace()`
+- The image package MUST NOT import `tools.keynote`, `applescript.*`, or `OsascriptRunner`
+- `OKA_IMAGE_PROVIDER=fake|bedrock` selects provider (default `fake`); `OKA_IMAGE_MODEL` required for bedrock (e.g. `amazon.nova-canvas-v1:0`)
+- CLI: `oka generate-images <deck_spec.json> [--output PATH] [--provider TEXT] [--force]`
+- Default output: `.runs/<YYYYMMDDTHHMMSSZ>-images/`
+
 ## Architecture (Storybook Renderer — change 009)
 
 ### Renderer package (`renderers/`)

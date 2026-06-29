@@ -67,6 +67,20 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 
 When running `oka session --tools keynote`, macOS may prompt for permission to control Keynote via Automation. Grant it when asked.
 
+## Architecture (Image Asset Generation — change 010)
+
+### Image package (`images/`)
+- `images/schema.py` — `ImageSpec`, `SlideArtSpec`, `ImageAsset`, `ImageManifest` (Pydantic v2, `extra="forbid"`)
+- `images/planner.py` — `build_slide_art_specs(deck)` → `list[SlideArtSpec]`; deterministic, no LLM
+- `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only PNG); `BedrockImageProvider`; `load_image_provider_from_env(name)`
+- `images/generator.py` — `generate_image_assets(deck, provider, *, output_dir, force=False)` → `ImageManifest`
+- `SlideArtSpec.asset_filename` is a `@computed_field` — e.g. `slide_03.png`
+- Cache: `cache_dir=None` disables shared cache (library/test default); CLI passes `.runs/image-cache/<provider>` so runs share cache across timestamped dirs; also falls back to matching manifest entry in same `output_dir`; `force=True` bypasses both
+- Asset paths in manifest are relative to `output_dir`; atomic writes via `<file>.tmp` → `Path.replace()`
+- The image package MUST NOT import Keynote tools, AppleScript builders, or `OsascriptRunner`
+- `OKA_IMAGE_PROVIDER=fake|bedrock`; `BEDROCK_IMAGE_MODEL_ID` required for bedrock
+- CLI: `oka generate-images <deck_spec.json> [--output PATH] [--provider TEXT] [--force]`
+
 ## Architecture (Storybook Renderer — change 009)
 
 ### Renderer package (`renderers/`)

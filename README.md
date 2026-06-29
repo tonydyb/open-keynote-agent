@@ -216,6 +216,55 @@ The command requires macOS Automation permission to control Keynote.
 - No custom fonts or animation.
 - No LLM is called — the renderer is fully deterministic.
 
+## Image Asset Generation
+
+`oka generate-images` converts a `deck_spec.json` into per-slide illustration PNG files
+without opening Keynote:
+
+```bash
+# Step 1: plan
+oka deck-plan "请为我制作一个关于《三只小猪》的8页童话绘本风Keynote" --slides 8 --output /tmp/pigs-plan
+
+# Step 2: generate images (fake provider, no API key needed)
+oka generate-images /tmp/pigs-plan/deck_spec.json --output /tmp/pigs-art
+
+# Step 2 (Bedrock Nova Canvas)
+BEDROCK_IMAGE_MODEL_ID=amazon.nova-canvas-v1:0 \
+  oka generate-images /tmp/pigs-plan/deck_spec.json --provider bedrock --output /tmp/pigs-art
+```
+
+Options:
+
+| Option | Default | Description |
+|---|---|---|
+| `--output` | `.runs/<timestamp>-images/` | Output directory |
+| `--provider` | from `OKA_IMAGE_PROVIDER` or `fake` | Image provider |
+| `--force` | off | Ignore cache and regenerate all images |
+
+The command writes:
+
+```text
+<output>/
+  art_spec.json           — one SlideArtSpec per slide (prompts)
+  image_manifest.json     — provider, hashes, paths, cache status
+  assets/
+    slide_01.png
+    slide_02.png
+    ...
+```
+
+**Caching:** on a second run with `--output <existing-dir>`, unchanged prompts reuse the
+existing PNG files. Changed prompts or `--force` trigger regeneration.
+
+**Providers:**
+
+| Provider | Requires | Description |
+|---|---|---|
+| `fake` | nothing | 1×1 white PNG; used in all tests |
+| `bedrock` | `BEDROCK_IMAGE_MODEL_ID`, `boto3` | AWS Bedrock Nova Canvas / Titan Image |
+
+This command does **not** open Keynote. Future changes will insert these PNGs into Keynote slides.
+
 ## Keynote Roadmap
 
 The next project direction is an interactive Keynote agent:
@@ -226,4 +275,5 @@ The next project direction is an interactive Keynote agent:
 4. ✅ Object tools (`keynote.add_text_box`, `keynote.add_emoji_text`, `keynote.add_shape`, `keynote.move_object`, `keynote.resize_object`).
 5. ✅ Deck spec planner (`oka deck-plan`, `DeckSpec`, `plan_deck_spec`, `render_deck_outline`).
 6. ✅ Storybook renderer (`oka render-storybook`, `render_storybook_deck`, deterministic layout templates).
-7. Expose session events through an API suitable for a future Studio UI.
+7. ✅ Image asset generation (`oka generate-images`, `generate_image_assets`, `FakeImageProvider`, `BedrockImageProvider`).
+8. Expose session events through an API suitable for a future Studio UI.

@@ -23,6 +23,8 @@ from open_keynote_agent.deck.planner import plan_deck_spec
 from open_keynote_agent.deck.outline import render_deck_outline
 from open_keynote_agent.deck.schema import DeckSpec
 from open_keynote_agent.renderers.storybook import render_storybook_deck
+from open_keynote_agent.images.generator import generate_image_assets
+from open_keynote_agent.images.provider import UnsupportedImageProviderError, load_image_provider_from_env
 
 app = typer.Typer(help="Open Keynote Agent CLI")
 console = Console()
@@ -461,6 +463,62 @@ def render_storybook(
     console.print(f"[dim]Output: {out_dir}[/]")
     if result.pdf_path:
         console.print(f"[dim]PDF: {result.pdf_path}[/]")
+
+
+@app.command(name="generate-images")
+def generate_images(
+    deck_spec_path: Path = typer.Argument(..., help="Path to deck_spec.json produced by oka deck-plan."),
+    output: Path | None = typer.Option(None, "--output", help="Output directory (default: unique dir under .runs/)."),
+    provider: str | None = typer.Option(None, "--provider", help="Image provider: fake or bedrock (default from OKA_IMAGE_PROVIDER or fake)."),
+    force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate all images."),
+) -> None:
+    """Generate per-slide illustration PNG assets from a validated DeckSpec."""
+    if not deck_spec_path.exists() or not deck_spec_path.is_file():
+        console.print(f"[red]Error:[/] File not found: {deck_spec_path}")
+        raise typer.Exit(code=1)
+
+    try:
+        deck = DeckSpec.model_validate_json(deck_spec_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        console.print(f"[red]Error:[/] Invalid DeckSpec: {exc}")
+        raise typer.Exit(code=1) from exc
+
+    try:
+        image_provider = load_image_provider_from_env(provider)
+    except (ValueError, UnsupportedImageProviderError) as exc:
+        console.print(f"[red]Error:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    default_dir_created: Path | None = None
+    if output is None:
+        base = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-images"
+        candidate = Path(".runs") / base
+        suffix = 0
+        while candidate.exists():
+            suffix += 1
+            candidate = Path(".runs") / f"{base}-{suffix}"
+        candidate.mkdir(parents=True)
+        out_dir = candidate
+        default_dir_created = candidate
+    else:
+        out_dir = output
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        shared_cache = Path(".runs") / "image-cache" / image_provider.name
+        manifest = generate_image_assets(
+            deck, image_provider, output_dir=out_dir, force=force, cache_dir=shared_cache
+        )
+    except Exception as exc:
+        console.print(f"[red]Error:[/] {exc}")
+        if default_dir_created is not None and default_dir_created.exists():
+            import shutil
+            shutil.rmtree(default_dir_created, ignore_errors=True)
+        raise typer.Exit(code=1) from exc
+
+    console.print(f"[bold green]Generated:[/] {len(manifest.assets)} images")
+    console.print(f"[dim]Assets: {out_dir / 'assets'}[/]")
+    console.print(f"[dim]Manifest: {out_dir / 'image_manifest.json'}[/]")
 
 
 if __name__ == "__main__":
