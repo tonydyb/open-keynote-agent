@@ -81,6 +81,9 @@ class DeckSpec(BaseModel):
     title: str
     subtitle: str | None = None
     language: str | None = None
+    source_language: str | None = None
+    content_language: str | None = None
+    source_deck_id: str | None = None
     theme: str | None = "Parchment"
     style: StyleSpec
     slides: list[SlideSpec] = Field(min_length=1, max_length=20)
@@ -107,4 +110,22 @@ class DeckSpec(BaseModel):
                     f"slide indexes must be sequential starting at 1; "
                     f"expected {expected}, got {slide.index}"
                 )
+        return self
+
+
+class DeckPlanBundle(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    localized: DeckSpec
+    english: DeckSpec
+
+    @model_validator(mode="after")
+    def decks_have_matching_structure(self) -> "DeckPlanBundle":
+        if len(self.localized.slides) != len(self.english.slides):
+            raise ValueError("localized and english decks must have the same slide count")
+        for localized_slide, english_slide in zip(self.localized.slides, self.english.slides):
+            if localized_slide.index != english_slide.index:
+                raise ValueError("localized and english slide indexes must match")
+            if localized_slide.kind != english_slide.kind:
+                raise ValueError("localized and english slide kinds must match")
         return self

@@ -19,7 +19,7 @@ from open_keynote_agent.runtime.events import EventLog
 from open_keynote_agent.applescript.runner import OsascriptRunner
 from open_keynote_agent.tools.demo import register_demo_tools
 from open_keynote_agent.tools.keynote import register_keynote_tools
-from open_keynote_agent.deck.planner import plan_deck_spec
+from open_keynote_agent.deck.planner import plan_deck_bundle
 from open_keynote_agent.deck.outline import render_deck_outline
 from open_keynote_agent.deck.schema import DeckSpec
 from open_keynote_agent.renderers.storybook import render_storybook_deck
@@ -346,7 +346,7 @@ def deck_plan(
     """Convert a presentation brief into a validated DeckSpec JSON and slide outline."""
     try:
         client = load_llm_client_from_env()
-        deck = plan_deck_spec(brief, client, slide_count_hint=slides, theme_hint=theme)
+        bundle = plan_deck_bundle(brief, client, slide_count_hint=slides, theme_hint=theme)
     except Exception as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise typer.Exit(code=1) from exc
@@ -366,22 +366,39 @@ def deck_plan(
         out_dir = output
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    for name in ("request.json", "deck_spec.json", "outline.md"):
+    output_files = ("request.json", "deck_spec.json", "deck_spec_en.json", "outline.md", "outline_en.md")
+    for name in output_files:
         if (out_dir / name).exists():
             console.print(f"[red]Error:[/] Output file already exists: {out_dir / name}")
             if default_dir_created is not None:
                 default_dir_created.rmdir()
             raise typer.Exit(code=1)
 
-    request_data = {"command": "deck-plan", "brief": brief, "slides": slides, "theme": theme}
+    localized = bundle.localized
+    english = bundle.english
+    request_data = {
+        "command": "deck-plan",
+        "brief": brief,
+        "slides": slides,
+        "theme": theme,
+        "source_language": localized.source_language or localized.language,
+        "localized_language": localized.content_language or localized.language,
+        "english_language": english.content_language or english.language,
+        "generated_files": list(output_files),
+    }
     (out_dir / "request.json").write_text(
         json.dumps(request_data, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     (out_dir / "deck_spec.json").write_text(
-        json.dumps(deck.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(localized.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    outline_text = render_deck_outline(deck)
+    (out_dir / "deck_spec_en.json").write_text(
+        json.dumps(english.model_dump(), ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    outline_text = render_deck_outline(localized)
     (out_dir / "outline.md").write_text(outline_text, encoding="utf-8")
+    outline_en_text = render_deck_outline(english)
+    (out_dir / "outline_en.md").write_text(outline_en_text, encoding="utf-8")
 
     console.print(outline_text)
     console.print(f"[dim]Output written to {out_dir}[/]")
@@ -467,7 +484,7 @@ def render_storybook(
 
 @app.command(name="generate-images")
 def generate_images(
-    deck_spec_path: Path = typer.Argument(..., help="Path to deck_spec.json produced by oka deck-plan."),
+    deck_spec_path: Path = typer.Argument(..., help="Path to deck_spec_en.json or deck_spec.json produced by oka deck-plan."),
     output: Path | None = typer.Option(None, "--output", help="Output directory (default: unique dir under .runs/)."),
     provider: str | None = typer.Option(None, "--provider", help="Image provider: fake or bedrock (default from OKA_IMAGE_PROVIDER or fake)."),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate all images."),

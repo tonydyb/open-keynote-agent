@@ -44,7 +44,7 @@ model_config = {"extra": "forbid"}
 class ImageSpec(BaseModel):
     prompt: str
     negative_prompt: str | None = None
-    style: str = "storybook watercolor, warm children's book illustration"
+    style: str = "deck-specified"
     aspect_ratio: str = "16:9"
     output_format: Literal["png"] = "png"
     seed: int | None = None
@@ -121,13 +121,16 @@ Prompt construction should use existing DeckSpec fields:
 - visual description
 - visual emoji
 - visual decorations
+- style typography
+- style avoid terms
 
-Prompt construction is a generic storybook prompt compiler. It must not include story-specific hardcoded anchors such as Three Little Pigs-only, Snow White-only, or Frozen-only rules. Any story-specific character or setting information must come from the `DeckSpec` fields, not from hardcoded planner branches.
+Prompt construction is a generic story image prompt compiler. It must not include story-specific hardcoded anchors such as Three Little Pigs-only, Snow White-only, or Frozen-only rules. Any story-specific character or setting information must come from the `DeckSpec` fields, not from hardcoded planner branches.
+
+Prompt construction must also be style-neutral. It must not inject fixed art styles such as watercolor, warm picture book, soft lighting, expressive characters, cinematic lighting, 3D, or oil painting. All art direction must come from `DeckSpec.style` and `VisualSpec` fields so the user's original brief remains in control.
 
 Prompt guidelines:
 
-- children's storybook illustration
-- warm, cute, friendly
+- visual image for the story slide
 - no text, no captions, no letters
 - match the deck's language/culture only through subject matter, not embedded text
 - include characters/scenes from the slide
@@ -140,13 +143,14 @@ Prompt guidelines:
 Example prompt:
 
 ```text
-Children's storybook watercolor illustration.
+Create a visual image for this story slide.
 Story: "三只小猪与大灰狼".
 Slide 3: 第一章 — 大毛的稻草屋.
 Main requirement: create an illustration that directly matches this story and this slide.
 Scene description: A straw house in a sunny meadow.
 Visual objects: pig, straw, house.
-Warm orange, yellow, brown, green palette. Cute, friendly, hand-painted.
+Style: flat vector paper-cut collage.
+Palette: warm orange, yellow, brown, green.
 No text, no captions, no letters, no watermark.
 ```
 
@@ -221,7 +225,8 @@ OKA_IMAGE_PROVIDER=bedrock   # explicit primary real provider
 Bedrock provider requirements:
 
 - implement `BedrockImageProvider`
-- load AWS credentials/region using the existing Bedrock/AWS environment conventions where possible
+- load AWS credentials using the existing Bedrock/AWS environment conventions where possible
+- load image Bedrock region from `OKA_IMAGE_AWS_REGION` when set, falling back to `AWS_REGION`
 - read image model id from `OKA_IMAGE_MODEL`
 - do not hardcode one Bedrock image model as the only supported model
 - fail clearly when AWS credentials, region, model access, or provider configuration is missing

@@ -46,6 +46,8 @@ The system SHALL validate that:
 - `aspect_ratio` supports `16:9`.
 - `output_format` is `png`.
 
+`ImageSpec.style` SHALL default to a neutral value such as `deck-specified`. It SHALL NOT default to a concrete art style such as watercolor, storybook, oil painting, 3D, cinematic, or soft lighting.
+
 ### SlideArtSpec
 
 The system SHALL define `SlideArtSpec` with at least:
@@ -130,10 +132,14 @@ The prompt SHALL include relevant DeckSpec data:
 - visual description
 - emoji when present
 - decorations when present
+- typography when present
+- avoid terms when present
 
 The planner SHALL build a generic story context from `DeckSpec.title`, `DeckSpec.subtitle`, `SlideSpec.title`, `SlideSpec.body`, and `VisualSpec.description`.
 
 The planner SHALL NOT contain story-specific hardcoded anchors such as Three Little Pigs-only, Snow White-only, or Frozen-only rules.
+
+The planner SHALL NOT inject fixed art styles such as watercolor, warm picture book, soft lighting, expressive characters, cinematic lighting, or 3D. Image style SHALL come from `DeckSpec.style` and `VisualSpec` fields.
 
 The planner SHALL phrase model-facing instructions primarily in English, while preserving user-provided story titles and scene details from the `DeckSpec`.
 
@@ -141,7 +147,7 @@ When known emoji hints are present, the planner SHALL convert them to semantic E
 
 The prompt SHALL include a "no text, no captions, no letters, no watermark" instruction.
 
-The generated `negative_prompt` SHALL include generic exclusions for text, captions, logos, watermarks, and unrelated classroom/document/poster scenes. It SHALL NOT globally exclude human characters, because many storybooks require human protagonists.
+The generated `negative_prompt` SHALL include generic exclusions for text, captions, logos, watermarks, and unrelated classroom/document/poster scenes. It SHALL also include `DeckSpec.style.avoid` terms. It SHALL NOT globally exclude human characters, because many storybooks require human protagonists.
 
 The function SHALL NOT call an LLM.
 
@@ -200,7 +206,9 @@ Documentation SHALL present `bedrock` as the primary real provider for real gene
 `BedrockImageProvider` SHALL:
 
 - read image model id from `OKA_IMAGE_MODEL`
-- use existing AWS/Bedrock credential and region conventions where possible
+- read image Bedrock region from `OKA_IMAGE_AWS_REGION` when set
+- fall back to `AWS_REGION` when `OKA_IMAGE_AWS_REGION` is absent
+- use existing AWS profile/credential conventions where possible
 - support Bedrock image model ids through adapter-level request/response handling
 - fail clearly when AWS credentials, region, model access, or provider configuration is missing
 - avoid hardcoding a single Bedrock model as the only supported image model
@@ -218,6 +226,8 @@ New image provider environment variables SHALL use the `OKA_` prefix. The provid
 
 ```text
 OKA_IMAGE_PROVIDER
+OKA_IMAGE_MODEL
+OKA_IMAGE_AWS_REGION
 ```
 
 Supported values SHALL include `fake` and `bedrock`. `openai` is reserved for future implementation and SHALL NOT be documented as currently supported until implemented.
@@ -329,6 +339,8 @@ The system SHALL provide:
 ```bash
 oka generate-images <deck_spec.json>
 ```
+
+For real image generation, callers SHOULD pass `deck_spec_en.json` produced by `oka deck-plan` when it is available. `deck_spec_en.json` is the English image-generation source of truth. The command SHALL still accept any valid `DeckSpec`, including localized `deck_spec.json`, but it SHALL NOT translate localized content itself.
 
 The command SHALL support:
 

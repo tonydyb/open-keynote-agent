@@ -36,6 +36,9 @@ The system SHALL define a `DeckSpec` model with at least:
 title
 subtitle
 language
+source_language
+content_language
+source_deck_id
 theme
 style
 slides
@@ -45,6 +48,7 @@ The system SHALL validate that:
 
 - `title` is present and non-empty after stripping whitespace.
 - `language` defaults to `None`.
+- `source_language`, `content_language`, and `source_deck_id` default to `None`.
 - `slides` is non-empty.
 - `slides` length is between 1 and 20.
 - slide indexes are sequential starting at 1.
@@ -142,6 +146,19 @@ Invalid model output SHALL fail with a clear validation error.
 
 The planner SHALL instruct the LLM to infer `language` from the brief's primary language instead of relying on a hard-coded language default.
 
+The system SHALL also provide `DeckPlanBundle` with:
+
+```text
+localized
+english
+```
+
+Both fields SHALL be independently valid `DeckSpec` objects. `localized` SHALL contain reader-visible text in the brief's primary language. `english` SHALL be the image-generation and multilingual source of truth. `english` SHALL use English text and complete English `visual.description` values that name the scene subject, characters, setting, action, and style.
+
+`DeckPlanBundle` SHALL validate that localized and english decks have the same slide count, slide indexes, and slide kinds.
+
+The system SHALL provide `plan_deck_bundle(...) -> DeckPlanBundle`. It SHALL use `DeckPlanBundle.model_json_schema()` and one LLM call.
+
 The planner SHALL NOT call `keynote.*` tools.
 
 The planner SHALL NOT open Keynote.
@@ -189,14 +206,16 @@ The command SHALL support:
 The command SHALL:
 
 1. Load the configured LLM provider.
-2. Generate a validated `DeckSpec`.
+2. Generate a validated `DeckPlanBundle`.
 3. Create a unique default output directory when `--output` is omitted.
 4. Create the explicit `--output` directory when needed.
-5. Refuse to overwrite an existing `request.json`, `deck_spec.json`, or `outline.md`.
+5. Refuse to overwrite an existing `request.json`, `deck_spec.json`, `deck_spec_en.json`, `outline.md`, or `outline_en.md`.
 6. Write `request.json`.
 7. Write `deck_spec.json`.
-8. Write `outline.md`.
-9. Print the outline.
+8. Write `deck_spec_en.json`.
+9. Write `outline.md`.
+10. Write `outline_en.md`.
+11. Print the localized outline.
 
 The command SHALL write JSON with `ensure_ascii=False`.
 

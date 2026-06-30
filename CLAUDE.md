@@ -81,7 +81,8 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 - Writes are atomic: `<file>.tmp` → `Path.replace()`
 - The image package MUST NOT import `tools.keynote`, `applescript.*`, or `OsascriptRunner`
 - `OKA_IMAGE_PROVIDER=fake|bedrock` selects provider (default `fake`); `OKA_IMAGE_MODEL` required for bedrock (e.g. `stability.stable-image-core-v1:1`)
-- CLI: `oka generate-images <deck_spec.json> [--output PATH] [--provider TEXT] [--force]`
+- Bedrock image region uses `OKA_IMAGE_AWS_REGION` first, then falls back to `AWS_REGION`; keep this separate from LLM region when needed
+- CLI: `oka generate-images <deck_spec_en.json|deck_spec.json> [--output PATH] [--provider TEXT] [--force]`; prefer `deck_spec_en.json` for real providers because it is the English image-generation source of truth
 - Default output: `.runs/<YYYYMMDDTHHMMSSZ>-images/`
 
 ## Architecture (Storybook Renderer — change 009)
@@ -100,12 +101,13 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 ## Architecture (Deck Spec Planner — change 008)
 
 ### Deck package (`deck/`)
-- `deck/schema.py` — `DeckSpec`, `SlideSpec`, `StyleSpec`, `VisualSpec` (Pydantic v2, `extra="forbid"`)
-- `deck/planner.py` — `plan_deck_spec(brief, llm_client, slide_count_hint, theme_hint)` → `DeckSpec`
+- `deck/schema.py` — `DeckSpec`, `DeckPlanBundle`, `SlideSpec`, `StyleSpec`, `VisualSpec` (Pydantic v2, `extra="forbid"`)
+- `deck/planner.py` — `plan_deck_spec(...)` → `DeckSpec` for compatibility; `plan_deck_bundle(...)` → `{localized, english}` for CLI output
 - `deck/outline.py` — `render_deck_outline(deck)` → `str`
 - The `deck` package MUST NOT import `tools.keynote`, `applescript.*`, or `OsascriptRunner`
 - `VisualSpec.decorations` are conceptual style notes; they are NOT `keynote.add_shape` enum values
 - `DeckSpec.language` defaults to `None`; the planner instructs the LLM to infer it from the brief
+- `deck_spec.json` is localized reader-visible content; `deck_spec_en.json` is the English image-generation and multilingual source of truth
 - CLI: `oka deck-plan "<brief>" [--slides N] [--theme TEXT] [--output PATH]`
 - Default output: `.runs/<YYYYMMDDTHHMMSSZ>/` (same convention as `runtime/session.py`); appends `-1`, `-2` suffix on collision
 - On failure: exit non-zero, print a concise error, do not write partial files

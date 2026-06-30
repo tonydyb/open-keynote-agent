@@ -115,6 +115,7 @@ class TestImageSpec:
     def test_optional_fields_default(self):
         spec = ImageSpec(prompt="x")
         assert spec.negative_prompt is None
+        assert spec.style == "deck-specified"
         assert spec.seed is None
 
     def test_extra_fields_forbidden(self):
@@ -220,6 +221,25 @@ class TestBuildSlideArtSpecs:
         for spec in specs:
             assert "children" in spec.image.prompt
 
+    def test_prompt_contains_typography_when_present(self):
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["typography"] = "bold comic lettering"
+        deck = DeckSpec(**raw)
+        spec = build_slide_art_specs(deck)[0]
+        assert "typography: bold comic lettering" in spec.image.prompt
+
+    def test_prompt_does_not_inject_fixed_art_styles(self):
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["mood"] = "flat vector paper-cut collage"
+        deck = DeckSpec(**raw)
+        spec = build_slide_art_specs(deck)[0]
+        prompt = spec.image.prompt.lower()
+        assert "flat vector paper-cut collage" in prompt
+        assert "watercolor" not in prompt
+        assert "soft lighting" not in prompt
+        assert "warm children's picture book" not in prompt
+        assert "expressive characters" not in prompt
+
     def test_prompt_contains_visual_description(self):
         deck = _three_pigs_deck()
         specs = build_slide_art_specs(deck)
@@ -285,6 +305,15 @@ class TestBuildSlideArtSpecs:
         assert "watermark" in spec.image.negative_prompt
         assert "unrelated classroom" in spec.image.negative_prompt
         assert "human children" not in spec.image.negative_prompt
+
+    def test_style_avoid_terms_are_in_negative_prompt(self):
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["avoid"] = ["watercolor", "soft lighting"]
+        deck = DeckSpec(**raw)
+        spec = build_slide_art_specs(deck)[0]
+        assert spec.image.negative_prompt is not None
+        assert "watercolor" in spec.image.negative_prompt
+        assert "soft lighting" in spec.image.negative_prompt
 
     def test_prompt_contains_palette(self):
         deck = _three_pigs_deck()
@@ -432,12 +461,14 @@ class TestLoadImageProviderFromEnv:
         monkeypatch.delenv("OMA_SKIP_DOTENV", raising=False)
         monkeypatch.delenv("OKA_IMAGE_PROVIDER", raising=False)
         monkeypatch.delenv("OKA_IMAGE_MODEL", raising=False)
+        monkeypatch.delenv("OKA_IMAGE_AWS_REGION", raising=False)
         monkeypatch.delenv("AWS_REGION", raising=False)
         monkeypatch.delenv("AWS_PROFILE", raising=False)
         (tmp_path / ".env").write_text(
             "\n".join([
                 "OKA_IMAGE_MODEL=amazon.nova-canvas-v1:0",
                 "AWS_REGION=us-east-1",
+                "OKA_IMAGE_AWS_REGION=us-west-2",
                 "AWS_PROFILE=storybook-test",
             ]),
             encoding="utf-8",
@@ -447,8 +478,19 @@ class TestLoadImageProviderFromEnv:
 
         assert isinstance(p, BedrockImageProvider)
         assert p.model_id == "amazon.nova-canvas-v1:0"
-        assert p.region == "us-east-1"
+        assert p.region == "us-west-2"
         assert p.profile == "storybook-test"
+
+    def test_bedrock_region_falls_back_to_aws_region(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
+        monkeypatch.setenv("OKA_IMAGE_MODEL", "stability.stable-image-core-v1:1")
+        monkeypatch.delenv("OKA_IMAGE_AWS_REGION", raising=False)
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+
+        p = load_image_provider_from_env("bedrock")
+
+        assert isinstance(p, BedrockImageProvider)
+        assert p.region == "us-east-1"
 
     def test_skip_dotenv_for_image_provider(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
@@ -577,6 +619,25 @@ class TestGenerateImageAssets:
         for entry in data["slides"]:
             assert "image" in entry
             assert "prompt" in entry["image"]
+
+    def test_art_spec_from_english_source_deck_uses_english_visual_prompt(self, tmp_path: Path):
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["title"] = "The Three Little Pigs"
+        raw["language"] = "en"
+        raw["content_language"] = "en"
+        raw["slides"][0]["title"] = "Cover"
+        raw["slides"][0]["visual"]["description"] = (
+            "Three cute pink anthropomorphic piglets standing in front of a brick cottage"
+        )
+        deck = DeckSpec(**raw)
+
+        generate_image_assets(deck, FakeImageProvider(), output_dir=tmp_path)
+
+        data = json.loads((tmp_path / "art_spec.json").read_text())
+        prompt = data["slides"][0]["image"]["prompt"]
+        assert "The Three Little Pigs" in prompt
+        assert "Three cute pink anthropomorphic piglets" in prompt
+        assert "三只小猪" not in prompt
 
     def test_assets_relative_paths_in_manifest(self, tmp_path: Path):
         deck = _three_pigs_deck()

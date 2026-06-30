@@ -44,6 +44,9 @@ class DeckSpec(BaseModel):
     title: str
     subtitle: str | None = None
     language: str | None = None
+    source_language: str | None = None
+    content_language: str | None = None
+    source_deck_id: str | None = None
     theme: str | None = "Parchment"
     style: StyleSpec
     slides: list[SlideSpec]
@@ -53,6 +56,7 @@ Validation:
 
 - `title` must be non-empty after stripping whitespace.
 - `language` defaults to `None`; the planner prompt should ask the LLM to infer the primary language from the brief.
+- `source_language`, `content_language`, and `source_deck_id` default to `None`.
 - `slides` length must be between 1 and 20 for general use.
 - Slide indexes must be sequential starting at 1.
 - The Three Little Pigs example should produce 7-8 slides when the prompt requests that range.
@@ -152,6 +156,16 @@ def plan_deck_spec(
 ) -> DeckSpec: ...
 ```
 
+Also add:
+
+```python
+class DeckPlanBundle(BaseModel):
+    localized: DeckSpec
+    english: DeckSpec
+
+def plan_deck_bundle(...) -> DeckPlanBundle: ...
+```
+
 Behavior:
 
 1. Validate that `brief.strip()` is non-empty.
@@ -171,6 +185,9 @@ The prompt should instruct the model to:
 - avoid styles explicitly rejected by the brief, such as blue business styling
 - prefer built-in Keynote theme `Parchment` for storybook decks unless the user asks otherwise
 - keep slide text concise and readable for the target audience
+- when generating a bundle, return `localized` in the brief's primary language and `english` as the image-generation source of truth
+- make every english `visual.description` a complete English visual prompt that names subject, characters, setting, action, and style
+- keep localized and english slide counts, indexes, and kinds identical
 
 The planner must not call Keynote tools and must not write files. File persistence belongs to the CLI command.
 
@@ -224,15 +241,17 @@ Options:
 The command:
 
 1. Loads the configured LLM provider with `load_llm_client_from_env()`.
-2. Calls `plan_deck_spec`.
+2. Calls `plan_deck_bundle`.
 3. Creates a unique output directory when `--output` is omitted.
-4. If `--output` is provided, creates it if needed but fails rather than overwriting existing `request.json`, `deck_spec.json`, or `outline.md`.
+4. If `--output` is provided, creates it if needed but fails rather than overwriting existing `request.json`, `deck_spec.json`, `deck_spec_en.json`, `outline.md`, or `outline_en.md`.
 5. Writes `request.json`.
 6. Writes `deck_spec.json`.
-7. Writes `outline.md`.
-8. Prints the outline to terminal.
+7. Writes `deck_spec_en.json`.
+8. Writes `outline.md`.
+9. Writes `outline_en.md`.
+10. Prints the localized outline to terminal.
 
-`deck_spec.json` should be written with `ensure_ascii=False` and stable indentation.
+Both deck spec files should be written with `ensure_ascii=False` and stable indentation. `deck_spec.json` is the localized reader-visible deck. `deck_spec_en.json` is the English image-generation and multilingual source of truth.
 
 Default output directories must use the same timestamp naming format as `runtime/session.py`:
 
@@ -248,7 +267,7 @@ If LLM loading, LLM completion, or DeckSpec validation fails, the command must:
 
 - exit with a non-zero Typer/Click failure status
 - print a concise user-facing error message
-- not write `request.json`, `deck_spec.json`, or `outline.md`
+- not write `request.json`, `deck_spec.json`, `deck_spec_en.json`, `outline.md`, or `outline_en.md`
 - not leave a partially-created default output directory when `--output` was omitted
 
 For an explicit `--output` directory, the command may leave the empty directory it created, but it must not write partial output files.

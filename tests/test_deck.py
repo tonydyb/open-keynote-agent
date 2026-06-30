@@ -15,8 +15,8 @@ from typer.testing import CliRunner
 import open_keynote_agent.cli as cli_module
 from open_keynote_agent.cli import app
 from open_keynote_agent.deck.outline import render_deck_outline
-from open_keynote_agent.deck.planner import plan_deck_spec
-from open_keynote_agent.deck.schema import DeckSpec, SlideSpec, StyleSpec, VisualSpec
+from open_keynote_agent.deck.planner import plan_deck_bundle, plan_deck_spec
+from open_keynote_agent.deck.schema import DeckPlanBundle, DeckSpec, SlideSpec, StyleSpec, VisualSpec
 from open_keynote_agent.llm.fake import FakeLLMClient
 
 cli_runner = CliRunner()
@@ -161,6 +161,51 @@ THREE_PIGS_RESPONSE: dict[str, Any] = {
             },
         },
     ],
+}
+
+THREE_PIGS_EN_RESPONSE: dict[str, Any] = {
+    "title": "The Three Little Pigs and the Big Bad Wolf",
+    "subtitle": "A story about hard work and courage",
+    "language": "en",
+    "source_language": "zh",
+    "content_language": "en",
+    "theme": "Parchment",
+    "style": {
+        "mood": "warm fairy-tale picture book style",
+        "audience": "children",
+        "palette": ["orange", "yellow", "brown", "green"],
+        "avoid": ["blue business style"],
+        "typography": "large playful titles, readable body text",
+    },
+    "slides": [
+        {
+            **slide,
+            "title": f"English Slide {slide['index']}",
+            "subtitle": "English subtitle" if slide.get("subtitle") else None,
+            "body": [f"English body {slide['index']}"],
+            "visual": {
+                **slide["visual"],
+                "description": (
+                    f"English visual prompt for slide {slide['index']}: "
+                    "three cute pink anthropomorphic piglets in a fairy-tale countryside scene"
+                ),
+            },
+        }
+        for slide in THREE_PIGS_RESPONSE["slides"]
+    ],
+}
+
+THREE_PIGS_BUNDLE_RESPONSE: dict[str, Any] = {
+    "localized": {
+        **THREE_PIGS_RESPONSE,
+        "source_language": "zh",
+        "content_language": "zh",
+        "source_deck_id": "three-pigs",
+    },
+    "english": {
+        **THREE_PIGS_EN_RESPONSE,
+        "source_deck_id": "three-pigs",
+    },
 }
 
 
@@ -323,6 +368,39 @@ class TestDeckSpec:
         d = DeckSpec(**THREE_PIGS_RESPONSE)
         assert d.theme == "Parchment"
 
+    def test_optional_language_metadata(self):
+        data = _minimal_deck()
+        data["source_language"] = "zh"
+        data["content_language"] = "en"
+        data["source_deck_id"] = "deck-123"
+        d = DeckSpec(**data)
+        assert d.source_language == "zh"
+        assert d.content_language == "en"
+        assert d.source_deck_id == "deck-123"
+
+
+class TestDeckPlanBundle:
+    def test_valid_bundle(self):
+        bundle = DeckPlanBundle(**THREE_PIGS_BUNDLE_RESPONSE)
+        assert bundle.localized.title == "三只小猪与大灰狼"
+        assert bundle.english.title == "The Three Little Pigs and the Big Bad Wolf"
+
+    def test_rejects_mismatched_slide_count(self):
+        data = json.loads(json.dumps(THREE_PIGS_BUNDLE_RESPONSE))
+        data["english"]["slides"].pop()
+        with pytest.raises(ValidationError, match="same slide count"):
+            DeckPlanBundle(**data)
+
+    def test_rejects_mismatched_slide_kind(self):
+        data = json.loads(json.dumps(THREE_PIGS_BUNDLE_RESPONSE))
+        data["english"]["slides"][0]["kind"] = "content"
+        with pytest.raises(ValidationError, match="slide kinds"):
+            DeckPlanBundle(**data)
+
+    def test_english_content_language(self):
+        bundle = DeckPlanBundle(**THREE_PIGS_BUNDLE_RESPONSE)
+        assert bundle.english.content_language == "en"
+
 
 # ---------------------------------------------------------------------------
 # Planner
@@ -418,6 +496,37 @@ class TestPlanDeckSpec:
         deck = plan_deck_spec("三只小猪故事", fake, slide_count_hint=8)
         assert len(deck.slides) == 8
         assert deck.title == "三只小猪与大灰狼"
+
+    def test_plan_deck_bundle_passes_bundle_schema(self):
+        fake = FakeLLMClient(response=THREE_PIGS_BUNDLE_RESPONSE)
+        plan_deck_bundle("三只小猪故事", fake, slide_count_hint=8)
+        assert fake.calls[0]["schema"] == DeckPlanBundle.model_json_schema()
+
+    def test_plan_deck_bundle_returns_valid_bundle(self):
+        fake = FakeLLMClient(response=THREE_PIGS_BUNDLE_RESPONSE)
+        bundle = plan_deck_bundle("三只小猪故事", fake, slide_count_hint=8)
+        assert isinstance(bundle, DeckPlanBundle)
+        assert bundle.localized.content_language == "zh"
+        assert bundle.english.content_language == "en"
+
+    def test_plan_deck_bundle_falls_back_to_single_deck_for_compatibility(self):
+        fake = FakeLLMClient(response=_minimal_deck())
+        bundle = plan_deck_bundle("brief", fake)
+        assert bundle.localized.title == "Test Deck"
+        assert bundle.english.title == "Test Deck"
+
+    def test_plan_deck_bundle_instructions_include_english_source_of_truth(self):
+        fake = FakeLLMClient(response=THREE_PIGS_BUNDLE_RESPONSE)
+        plan_deck_bundle("三只小猪故事", fake, slide_count_hint=8)
+        system_content = fake.calls[0]["messages"][0]["content"]
+        assert "image-generation and multilingual source of truth" in system_content
+        assert "complete, concrete English visual prompt" in system_content
+
+    def test_plan_deck_bundle_english_visual_description_is_english_fixture(self):
+        fake = FakeLLMClient(response=THREE_PIGS_BUNDLE_RESPONSE)
+        bundle = plan_deck_bundle("三只小猪故事", fake, slide_count_hint=8)
+        assert "English visual prompt" in bundle.english.slides[0].visual.description
+        assert "三只小猪" not in bundle.english.slides[0].visual.description
 
     def test_does_not_import_keynote_tools(self):
         import open_keynote_agent.deck.planner as planner_mod
@@ -525,7 +634,7 @@ class TestDeckPlanCLI:
     def _fake_client(self) -> FakeLLMClient:
         return FakeLLMClient(response=_minimal_deck())
 
-    def test_writes_three_output_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    def test_writes_bilingual_output_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
         fake = self._fake_client()
         monkeypatch.setattr(cli_module, "load_llm_client_from_env", lambda: fake)
@@ -534,7 +643,9 @@ class TestDeckPlanCLI:
         out = tmp_path / "out"
         assert (out / "request.json").exists()
         assert (out / "deck_spec.json").exists()
+        assert (out / "deck_spec_en.json").exists()
         assert (out / "outline.md").exists()
+        assert (out / "outline_en.md").exists()
 
     def test_request_json_contains_brief(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
@@ -543,6 +654,7 @@ class TestDeckPlanCLI:
         cli_runner.invoke(app, ["deck-plan", "My brief text", "--output", str(tmp_path / "out")])
         data = json.loads((tmp_path / "out" / "request.json").read_text())
         assert data["brief"] == "My brief text"
+        assert "deck_spec_en.json" in data["generated_files"]
 
     def test_deck_spec_json_is_valid_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
@@ -552,6 +664,15 @@ class TestDeckPlanCLI:
         parsed = json.loads((tmp_path / "out" / "deck_spec.json").read_text())
         assert "title" in parsed
 
+    def test_deck_spec_en_json_is_valid_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        fake = FakeLLMClient(response=THREE_PIGS_BUNDLE_RESPONSE)
+        monkeypatch.setattr(cli_module, "load_llm_client_from_env", lambda: fake)
+        cli_runner.invoke(app, ["deck-plan", "brief", "--output", str(tmp_path / "out")])
+        parsed = json.loads((tmp_path / "out" / "deck_spec_en.json").read_text())
+        assert parsed["content_language"] == "en"
+        assert parsed["title"] == "The Three Little Pigs and the Big Bad Wolf"
+
     def test_outline_md_contains_title(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
         fake = self._fake_client()
@@ -559,6 +680,14 @@ class TestDeckPlanCLI:
         cli_runner.invoke(app, ["deck-plan", "brief", "--output", str(tmp_path / "out")])
         content = (tmp_path / "out" / "outline.md").read_text()
         assert "Test Deck" in content
+
+    def test_outline_en_md_contains_english_title(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        fake = FakeLLMClient(response=THREE_PIGS_BUNDLE_RESPONSE)
+        monkeypatch.setattr(cli_module, "load_llm_client_from_env", lambda: fake)
+        cli_runner.invoke(app, ["deck-plan", "brief", "--output", str(tmp_path / "out")])
+        content = (tmp_path / "out" / "outline_en.md").read_text()
+        assert "The Three Little Pigs and the Big Bad Wolf" in content
 
     def test_outline_printed_to_terminal(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
@@ -587,6 +716,16 @@ class TestDeckPlanCLI:
         result = cli_runner.invoke(app, ["deck-plan", "brief", "--output", str(out)])
         assert result.exit_code != 0
 
+    def test_refuses_to_overwrite_existing_deck_spec_en_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        fake = self._fake_client()
+        monkeypatch.setattr(cli_module, "load_llm_client_from_env", lambda: fake)
+        out = tmp_path / "out"
+        out.mkdir()
+        (out / "deck_spec_en.json").write_text("{}")
+        result = cli_runner.invoke(app, ["deck-plan", "brief", "--output", str(out)])
+        assert result.exit_code != 0
+
     def test_refuses_to_overwrite_existing_outline_md(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
         fake = self._fake_client()
@@ -594,6 +733,16 @@ class TestDeckPlanCLI:
         out = tmp_path / "out"
         out.mkdir()
         (out / "outline.md").write_text("# old")
+        result = cli_runner.invoke(app, ["deck-plan", "brief", "--output", str(out)])
+        assert result.exit_code != 0
+
+    def test_refuses_to_overwrite_existing_outline_en_md(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        fake = self._fake_client()
+        monkeypatch.setattr(cli_module, "load_llm_client_from_env", lambda: fake)
+        out = tmp_path / "out"
+        out.mkdir()
+        (out / "outline_en.md").write_text("# old")
         result = cli_runner.invoke(app, ["deck-plan", "brief", "--output", str(out)])
         assert result.exit_code != 0
 
@@ -608,6 +757,7 @@ class TestDeckPlanCLI:
         run_dirs = list(runs_dir.iterdir())
         assert len(run_dirs) == 1
         assert (run_dirs[0] / "deck_spec.json").exists()
+        assert (run_dirs[0] / "deck_spec_en.json").exists()
 
     def test_slides_option_passed_to_planner(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
@@ -675,7 +825,9 @@ class TestDeckPlanCLI:
         cli_runner.invoke(app, ["deck-plan", "brief", "--output", str(out)])
         assert not (out / "request.json").exists()
         assert not (out / "deck_spec.json").exists()
+        assert not (out / "deck_spec_en.json").exists()
         assert not (out / "outline.md").exists()
+        assert not (out / "outline_en.md").exists()
 
     def test_default_dir_cleaned_up_on_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)
@@ -715,3 +867,4 @@ class TestDeckPlanCLI:
         assert result.exit_code == 0, result.output
         # The collision dir should have been avoided — a -1 suffix dir created
         assert (tmp_path / ".runs" / f"{fixed_ts}-1" / "deck_spec.json").exists()
+        assert (tmp_path / ".runs" / f"{fixed_ts}-1" / "deck_spec_en.json").exists()

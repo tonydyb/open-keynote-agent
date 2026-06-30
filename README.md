@@ -83,6 +83,7 @@ Set `OMA_LLM_PROVIDER` to one of:
 Configure provider environment variables:
 
 - Bedrock: `AWS_PROFILE`, `AWS_REGION`, `BEDROCK_MODEL_ID`
+- Bedrock image generation: `OKA_IMAGE_AWS_REGION`, `OKA_IMAGE_MODEL`
 - OpenAI: `OPENAI_API_KEY`, optional `OPENAI_MODEL`
 - Gemini: `GEMINI_API_KEY`, optional `GEMINI_MODEL`
 
@@ -175,11 +176,13 @@ Options:
 | `--theme` | Parchment | Keynote theme hint |
 | `--output` | `.runs/<timestamp>/` | Output directory |
 
-The command writes three files to the output directory:
+The command writes bilingual planning artifacts to the output directory:
 
 - `request.json` — the original brief and options
-- `deck_spec.json` — the validated `DeckSpec` (UTF-8, `ensure_ascii=False`)
-- `outline.md` — a human-readable slide outline for review
+- `deck_spec.json` — localized reader-visible `DeckSpec` (UTF-8, `ensure_ascii=False`)
+- `deck_spec_en.json` — English image-generation and multilingual source-of-truth `DeckSpec`
+- `outline.md` — localized human-readable slide outline for review
+- `outline_en.md` — English slide outline
 
 The outline is printed to the terminal so you can inspect the plan before rendering.
 
@@ -218,7 +221,7 @@ The command requires macOS Automation permission to control Keynote.
 
 ## Image Asset Generation
 
-`oka generate-images` converts a `deck_spec.json` into per-slide illustration PNG files
+`oka generate-images` converts a `DeckSpec` into per-slide illustration PNG files
 without opening Keynote:
 
 ```bash
@@ -226,12 +229,16 @@ without opening Keynote:
 oka deck-plan "请为我制作一个关于《三只小猪》的8页童话绘本风Keynote" --slides 8 --output /tmp/pigs-plan
 
 # Step 2: generate images (fake provider, no API key needed)
-oka generate-images /tmp/pigs-plan/deck_spec.json --output /tmp/pigs-art
+oka generate-images /tmp/pigs-plan/deck_spec_en.json --output /tmp/pigs-art
 
 # Step 2 (Bedrock Stability AI)
+OKA_IMAGE_AWS_REGION=us-west-2 \
 OKA_IMAGE_MODEL=stability.stable-image-core-v1:1 \
-  oka generate-images /tmp/pigs-plan/deck_spec.json --provider bedrock --output /tmp/pigs-art
+  oka generate-images /tmp/pigs-plan/deck_spec_en.json --provider bedrock --output /tmp/pigs-art
 ```
+
+Use `deck_spec_en.json` for real image generation when it is available. `deck_spec.json`
+is still accepted, but localized non-English scene text may produce weaker image results.
 
 Options:
 
@@ -261,7 +268,7 @@ existing PNG files. Changed prompts or `--force` trigger regeneration.
 | Provider | Requires | Description |
 |---|---|---|
 | `fake` | nothing | 1×1 white PNG; used in all tests |
-| `bedrock` | `OKA_IMAGE_MODEL`, `boto3` | AWS Bedrock Stability AI, Nova Canvas, or Titan Image |
+| `bedrock` | `OKA_IMAGE_MODEL`, `OKA_IMAGE_AWS_REGION` or `AWS_REGION`, `boto3` | AWS Bedrock Stability AI, Nova Canvas, or Titan Image |
 
 This command does **not** open Keynote. Future changes will insert these PNGs into Keynote slides.
 

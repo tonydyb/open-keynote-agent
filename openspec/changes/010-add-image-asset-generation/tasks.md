@@ -32,10 +32,13 @@
 - [x] Produce one `SlideArtSpec` per DeckSpec slide.
 - [x] Include deck title in prompts.
 - [x] Include style mood and audience in prompts.
+- [x] Include style typography in prompts when present.
+- [x] Include style avoid terms in negative prompts.
 - [x] Include slide title, subtitle, and body in prompts.
 - [x] Include visual description, emoji, and decorations in prompts.
 - [x] Build generic story context from DeckSpec and SlideSpec fields.
 - [x] Do not use story-specific hardcoded anchors.
+- [x] Do not inject fixed art styles such as watercolor, soft lighting, or warm picture book.
 - [x] Convert known emoji hints to semantic English object words.
 - [x] Add generic negative prompt without globally excluding human characters.
 - [x] Include "no text, no captions, no letters, no watermark" instruction.
@@ -49,7 +52,8 @@
 - [x] Implement `FakeImageProvider` (stdlib-only 1×1 white PNG via struct + zlib).
 - [x] Implement `BedrockImageProvider` as the primary explicit real image provider.
 - [x] `BedrockImageProvider` reads model id from `OKA_IMAGE_MODEL`.
-- [x] `BedrockImageProvider` uses `AWS_REGION` and `AWS_PROFILE` conventions from existing LLM adapter.
+- [x] `BedrockImageProvider` reads region from `OKA_IMAGE_AWS_REGION`, falling back to `AWS_REGION`.
+- [x] `BedrockImageProvider` uses `AWS_PROFILE` conventions from existing LLM adapter.
 - [x] `BedrockImageProvider` fails clearly when `OKA_IMAGE_MODEL` is missing.
 - [x] Add provider loader `load_image_provider_from_env(provider_name)` using `OKA_IMAGE_PROVIDER` with default `fake`.
 - [x] Loader supports `fake` and `bedrock`; raises `UnsupportedImageProviderError` for unknown names.

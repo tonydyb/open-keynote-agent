@@ -10,7 +10,7 @@ class ImageSpec(BaseModel):
 
     prompt: str
     negative_prompt: str | None = None
-    style: str = "storybook watercolor, warm children's book illustration"
+    style: str = "deck-specified"
     aspect_ratio: str = "16:9"
     output_format: Literal["png"] = "png"
     seed: int | None = None

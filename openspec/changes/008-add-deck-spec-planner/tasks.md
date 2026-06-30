@@ -17,6 +17,9 @@
 - [x] Validate every `VisualSpec.emoji` item is a non-empty string.
 - [x] Validate every `VisualSpec.decorations` item is a non-empty string.
 - [x] Set `DeckSpec.language` default to `None`.
+- [x] Add optional DeckSpec metadata fields: `source_language`, `content_language`, `source_deck_id`.
+- [x] Define `DeckPlanBundle` with `localized` and `english` DeckSpec fields.
+- [x] Validate bundle decks have matching slide count, indexes, and kinds.
 - [x] Validate slide count range `1..20`.
 - [x] Validate slide indexes are sequential starting at 1.
 - [x] Validate every slide has a visual spec.
@@ -27,11 +30,13 @@
 
 - [x] Add `src/open_keynote_agent/deck/planner.py`.
 - [x] Implement `plan_deck_spec(brief, llm_client, slide_count_hint=None, theme_hint="Parchment")`.
+- [x] Implement `plan_deck_bundle(...)` using one LLM call and `DeckPlanBundle.model_json_schema()`.
 - [x] Reject blank briefs before calling the LLM.
 - [x] Reject `slide_count_hint` outside `1..20` before calling the LLM.
 - [x] Build a concise system prompt for structured deck planning.
 - [x] Include theme and slide-count hints in planner messages.
 - [x] Instruct the LLM to infer `language` from the brief's primary language.
+- [x] Instruct the LLM to generate localized reader text plus an English image-generation source deck.
 - [x] Pass `DeckSpec.model_json_schema()` to `LLMClient.complete_json`.
 - [x] Validate model output with `DeckSpec.model_validate(raw)`.
 - [x] Ensure planner does not import or call Keynote tools.
@@ -57,13 +62,15 @@
 - [x] Add `--output` option for output directory.
 - [x] Use a unique default output directory under `.runs/<YYYYMMDDTHHMMSSZ>/` when `--output` is omitted.
 - [x] Add `-1`, `-2`, etc. suffixes on default output directory timestamp collisions.
-- [x] Refuse to overwrite existing `request.json`, `deck_spec.json`, or `outline.md`.
+- [x] Refuse to overwrite existing `request.json`, `deck_spec.json`, `deck_spec_en.json`, `outline.md`, or `outline_en.md`.
 - [x] Write `request.json`.
 - [x] Write `deck_spec.json` with `ensure_ascii=False`.
+- [x] Write `deck_spec_en.json` with `ensure_ascii=False`.
 - [x] Write `outline.md`.
+- [x] Write `outline_en.md`.
 - [x] Print outline to terminal.
 - [x] On LLM load/completion or validation failure, exit non-zero with a concise error.
-- [x] On failure, do not write partial `request.json`, `deck_spec.json`, or `outline.md`.
+- [x] On failure, do not write partial `request.json`, `deck_spec.json`, `deck_spec_en.json`, `outline.md`, or `outline_en.md`.
 - [x] On failure with default output, clean up any partially-created default output directory.
 - [x] Confirm command does not open Keynote and does not call `keynote.*` tools.
 - [x] Add CLI tests with `FakeLLMClient`.

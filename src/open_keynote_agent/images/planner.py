@@ -94,6 +94,7 @@ def _build_negative_prompt(deck: DeckSpec) -> str | None:
         "user interface",
         "photorealistic adult realism",
     ]
+    negative.extend(deck.style.avoid)
     return ", ".join(negative) if negative else None
 
 
@@ -101,7 +102,7 @@ def _build_prompt(deck: DeckSpec, slide: SlideSpec) -> str:
     parts: list[str] = []
 
     # Deck-level context
-    parts.append("Children's storybook watercolor illustration.")
+    parts.append("Create a visual image for this story slide.")
     deck_line = f'Story: "{deck.title}".'
     if deck.subtitle:
         deck_line += f' Subtitle: "{deck.subtitle}".'
@@ -109,15 +110,11 @@ def _build_prompt(deck: DeckSpec, slide: SlideSpec) -> str:
     parts.append(_STORY_MATCH_INSTRUCTION)
 
     # Style / audience
-    style_parts: list[str] = [
-        "warm children's picture book",
-        "watercolor",
-        "soft lighting",
-        "expressive characters",
-        deck.style.mood,
-    ]
+    style_parts: list[str] = [deck.style.mood]
     if deck.style.audience:
         style_parts.append(f"audience: {deck.style.audience}")
+    if deck.style.typography:
+        style_parts.append(f"typography: {deck.style.typography}")
     parts.append("Style: " + "; ".join(style_parts) + ".")
 
     # Slide-level context

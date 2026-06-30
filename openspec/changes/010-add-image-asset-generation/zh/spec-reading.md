@@ -102,7 +102,7 @@ src/open_keynote_agent/images/
 class ImageSpec(BaseModel):
     prompt: str
     negative_prompt: str | None = None
-    style: str = "storybook watercolor, warm children's book illustration"
+    style: str = "deck-specified"
     aspect_ratio: str = "16:9"
     output_format: Literal["png"] = "png"
     seed: int | None = None
@@ -162,12 +162,16 @@ build_slide_art_specs(deck: DeckSpec) -> list[SlideArtSpec]
 - visual description
 - emoji
 - decorations
+- typography
+- avoid terms
 
-这个 planner 是通用的故事绘本 prompt compiler，不应该写死任何具体故事。例如不允许出现只服务于《三只小猪》的 `_three_pigs_anchor`，也不应该写死《白雪公主》或《冰雪奇缘》的专用分支。故事角色和场景信息必须来自 `DeckSpec` / `SlideSpec` / `VisualSpec`。
+这个 planner 是通用的故事图片 prompt compiler，不应该写死任何具体故事。例如不允许出现只服务于《三只小猪》的 `_three_pigs_anchor`，也不应该写死《白雪公主》或《冰雪奇缘》的专用分支。故事角色和场景信息必须来自 `DeckSpec` / `SlideSpec` / `VisualSpec`。
+
+这个 planner 也不能写死具体美术风格，例如 watercolor、warm picture book、soft lighting、expressive characters、3D、oil painting 等。图片风格必须来自用户 brief 经由 `DeckSpec.style` 和 `VisualSpec` 传入的内容。
 
 面向图片模型的控制指令应该优先使用英文，同时保留用户输入的故事标题和场景描述。已知 emoji 应该转换成英文语义词，而不是只把 emoji 原样塞进 prompt，例如 `🐷` 转成 `pig`，`👸` 转成 `princess`。
 
-`negative_prompt` 应该包含通用排除项，例如文字、水印、logo、无关课堂、文档、海报等；但不能全局排除 human/human children，因为《白雪公主》《冰雪奇缘》等故事需要人类角色。
+`negative_prompt` 应该包含通用排除项，例如文字、水印、logo、无关课堂、文档、海报等，也应该包含 `DeckSpec.style.avoid`；但不能全局排除 human/human children，因为《白雪公主》《冰雪奇缘》等故事需要人类角色。
 
 prompt 必须包含：
 
@@ -180,10 +184,13 @@ no text, no captions, no letters, no watermark
 示例：
 
 ```text
-Children's storybook watercolor illustration for "三只小猪与大灰狼".
+Create a visual image for this story slide.
+Story: "三只小猪与大灰狼".
 Slide 3: 第一章 — 大毛的稻草屋.
-Scene: A straw house in a sunny meadow. Include: 🐷 🌾 🏠.
-Warm orange, yellow, brown, green palette. Cute, friendly, hand-painted.
+Scene: A straw house in a sunny meadow.
+Visual objects: pig, straw, house.
+Style: flat vector paper-cut collage.
+Palette: warm orange, yellow, brown, green.
 No text, no captions, no letters, no watermark.
 ```
 
@@ -266,7 +273,8 @@ Bedrock provider 必须隔离在 adapter 里。
 
 - 实现 `BedrockImageProvider`。
 - 从 `OKA_IMAGE_MODEL` 读取 Bedrock image model id。
-- 尽量复用现有 AWS/Bedrock credentials 和 region 约定。
+- 从 `OKA_IMAGE_AWS_REGION` 读取图片生成专用 Bedrock region；未设置时 fallback 到 `AWS_REGION`。
+- 继续复用现有 AWS profile/credential 约定。
 - 不要把唯一支持模型 hardcode 成某一个 Bedrock model。
 - AWS credentials、region、model access 或配置缺失时，要给清晰错误。
 - 测试不能调用 Bedrock。

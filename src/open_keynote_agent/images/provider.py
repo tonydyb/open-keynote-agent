@@ -161,7 +161,7 @@ def load_image_provider_from_env(provider_name: str | None = None) -> ImageProvi
             )
         return BedrockImageProvider(
             model_id=model_id,
-            region=os.environ.get("AWS_REGION"),
+            region=os.environ.get("OKA_IMAGE_AWS_REGION") or os.environ.get("AWS_REGION"),
             profile=os.environ.get("AWS_PROFILE"),
         )
 
