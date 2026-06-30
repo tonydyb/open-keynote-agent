@@ -72,14 +72,14 @@ When running `oka session --tools keynote`, macOS may prompt for permission to c
 ### Image package (`images/`)
 - `images/schema.py` — `ImageSpec`, `SlideArtSpec`, `ImageAsset`, `ImageManifest` (Pydantic v2, `extra="forbid"`)
 - `images/planner.py` — `build_slide_art_specs(deck)` → `list[SlideArtSpec]`; deterministic, no LLM
-- `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only PNG); `BedrockImageProvider`; `load_image_provider_from_env(name)`
+- `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only PNG); `BedrockImageProvider` (Stability AI and Amazon image request formats); `load_image_provider_from_env(name)`
 - `images/generator.py` — `generate_image_assets(deck, provider, *, output_dir, force=False)` → `ImageManifest`
 - `SlideArtSpec.asset_filename` is a `@computed_field` — e.g. `slide_03.png`
 - Prompt hash: `sha256(f"{provider_name}\n{canonical_json}".encode("utf-8")).hexdigest()[:16]`, where `canonical_json` is `json.dumps(spec.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":"))`
 - Cache: `cache_dir=None` disables shared cache (library/test default); CLI passes `.runs/image-cache/<provider>` so runs share cache across timestamped dirs; also falls back to matching manifest entry in same `output_dir`; `force=True` bypasses both
 - Asset paths in manifest are relative to `output_dir`; atomic writes via `<file>.tmp` → `Path.replace()`
 - The image package MUST NOT import Keynote tools, AppleScript builders, or `OsascriptRunner`
-- `OKA_IMAGE_PROVIDER=fake|bedrock`; `OKA_IMAGE_MODEL` required for bedrock
+- `OKA_IMAGE_PROVIDER=fake|bedrock`; `OKA_IMAGE_MODEL` required for bedrock, e.g. `stability.stable-image-core-v1:1`
 - CLI: `oka generate-images <deck_spec.json> [--output PATH] [--provider TEXT] [--force]`
 
 ## Architecture (Storybook Renderer — change 009)

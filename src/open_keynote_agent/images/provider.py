@@ -6,6 +6,8 @@ import zlib
 from pathlib import Path
 from typing import Protocol
 
+from dotenv import load_dotenv
+
 from open_keynote_agent.images.schema import ImageGenerationResult, ImageSpec
 
 
@@ -46,7 +48,7 @@ class FakeImageProvider:
 
 
 # ---------------------------------------------------------------------------
-# Bedrock image provider (Nova Canvas / Titan Image)
+# Bedrock image provider (Stability AI / Nova Canvas / Titan Image)
 # ---------------------------------------------------------------------------
 
 class BedrockImageProvider:
@@ -64,18 +66,23 @@ class BedrockImageProvider:
         self.region = region
         self.profile = profile
 
-    def generate(self, spec: ImageSpec, output_path: Path) -> ImageGenerationResult:
-        try:
-            import boto3
-        except ImportError as exc:
-            raise ImportError("boto3 is required for BedrockImageProvider") from exc
+    def _build_request_body(self, spec: ImageSpec) -> dict:
+        if self.model_id.startswith("stability."):
+            body: dict = {
+                "prompt": spec.prompt,
+                "mode": "text-to-image",
+                "aspect_ratio": spec.aspect_ratio,
+                "output_format": spec.output_format,
+            }
+            if spec.negative_prompt:
+                body["negative_prompt"] = spec.negative_prompt
+            if spec.seed is not None:
+                body["seed"] = spec.seed
+            return body
 
-        import base64
-        import json
+        return self._build_amazon_request_body(spec)
 
-        session = boto3.Session(profile_name=self.profile) if self.profile else boto3.Session()
-        client = session.client("bedrock-runtime", region_name=self.region)
-
+    def _build_amazon_request_body(self, spec: ImageSpec) -> dict:
         body: dict = {
             "taskType": "TEXT_IMAGE",
             "textToImageParams": {"text": spec.prompt},
@@ -91,6 +98,21 @@ class BedrockImageProvider:
             body["textToImageParams"]["negativeText"] = spec.negative_prompt
         if spec.seed is not None:
             body["imageGenerationConfig"]["seed"] = spec.seed
+        return body
+
+    def generate(self, spec: ImageSpec, output_path: Path) -> ImageGenerationResult:
+        try:
+            import boto3
+        except ImportError as exc:
+            raise ImportError("boto3 is required for BedrockImageProvider") from exc
+
+        import base64
+        import json
+
+        session = boto3.Session(profile_name=self.profile) if self.profile else boto3.Session()
+        client = session.client("bedrock-runtime", region_name=self.region)
+
+        body = self._build_request_body(spec)
 
         response = client.invoke_model(
             modelId=self.model_id,
@@ -120,6 +142,9 @@ class UnsupportedImageProviderError(ValueError):
 
 
 def load_image_provider_from_env(provider_name: str | None = None) -> ImageProvider:
+    if os.environ.get("OMA_SKIP_DOTENV") != "1":
+        load_dotenv(dotenv_path=Path.cwd() / ".env")
+
     if provider_name is None:
         provider_name = os.environ.get("OKA_IMAGE_PROVIDER", "fake").lower()
 
@@ -131,8 +156,8 @@ def load_image_provider_from_env(provider_name: str | None = None) -> ImageProvi
         if not model_id:
             raise ValueError(
                 "OKA_IMAGE_MODEL is required when OKA_IMAGE_PROVIDER=bedrock. "
-                "Set it to a Nova Canvas or Titan Image model ID, e.g. "
-                "amazon.nova-canvas-v1:0"
+                "Set it to a Bedrock image model ID, e.g. "
+                "stability.stable-image-core-v1:1"
             )
         return BedrockImageProvider(
             model_id=model_id,

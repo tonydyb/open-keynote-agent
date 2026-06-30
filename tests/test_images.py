@@ -20,6 +20,7 @@ from open_keynote_agent.deck.schema import DeckSpec
 from open_keynote_agent.images.generator import _prompt_hash, generate_image_assets
 from open_keynote_agent.images.planner import _NO_TEXT_INSTRUCTION, build_slide_art_specs
 from open_keynote_agent.images.provider import (
+    BedrockImageProvider,
     FakeImageProvider,
     UnsupportedImageProviderError,
     load_image_provider_from_env,
@@ -230,8 +231,60 @@ class TestBuildSlideArtSpecs:
         raw["slides"][0]["visual"]["emoji"] = ["🐷", "🏠"]
         deck = DeckSpec(**raw)
         specs = build_slide_art_specs(deck)
-        assert "🐷" in specs[0].image.prompt
-        assert "🏠" in specs[0].image.prompt
+        assert "Visual objects: pig, house." in specs[0].image.prompt
+
+    def test_prompt_supports_arbitrary_story_titles(self):
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["title"] = "Snow White"
+        raw["subtitle"] = "A fairy tale about kindness"
+        raw["slides"][0]["title"] = "The Magic Mirror"
+        raw["slides"][0]["visual"]["description"] = "Snow White in an enchanted forest"
+        raw["slides"][0]["visual"]["emoji"] = ["👸", "🪞", "🍎"]
+        deck = DeckSpec(**raw)
+
+        spec = build_slide_art_specs(deck)[0]
+
+        assert 'Story: "Snow White".' in spec.image.prompt
+        assert 'Subtitle: "A fairy tale about kindness".' in spec.image.prompt
+        assert "The Magic Mirror" in spec.image.prompt
+        assert "Snow White in an enchanted forest" in spec.image.prompt
+        assert "Visual objects: princess, magic mirror, apple." in spec.image.prompt
+
+    def test_prompt_supports_non_english_arbitrary_story_titles(self):
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["title"] = "冰雪奇缘"
+        raw["slides"][0]["title"] = "冰雪城堡"
+        raw["slides"][0]["visual"]["description"] = "女王在冰雪城堡中释放魔法"
+        raw["slides"][0]["visual"]["emoji"] = ["❄️", "🏰", "👑"]
+        deck = DeckSpec(**raw)
+
+        spec = build_slide_art_specs(deck)[0]
+
+        assert 'Story: "冰雪奇缘".' in spec.image.prompt
+        assert "冰雪城堡" in spec.image.prompt
+        assert "女王在冰雪城堡中释放魔法" in spec.image.prompt
+        assert "Visual objects: snowflake, castle, crown." in spec.image.prompt
+
+    def test_prompt_contains_generic_story_match_instruction(self):
+        deck = _three_pigs_deck()
+        spec = build_slide_art_specs(deck)[0]
+        assert "directly matches this story and this slide" in spec.image.prompt
+
+    def test_prompt_planner_has_no_story_specific_anchor(self):
+        import open_keynote_agent.images.planner as planner_mod
+        source = planner_mod.__file__
+        assert source is not None
+        content = Path(source).read_text()
+        assert "_three_pigs_anchor" not in content
+        assert "piglet brothers" not in content
+
+    def test_negative_prompt_is_generic_and_allows_humans(self):
+        deck = _three_pigs_deck()
+        spec = build_slide_art_specs(deck)[0]
+        assert spec.image.negative_prompt is not None
+        assert "watermark" in spec.image.negative_prompt
+        assert "unrelated classroom" in spec.image.negative_prompt
+        assert "human children" not in spec.image.negative_prompt
 
     def test_prompt_contains_palette(self):
         deck = _three_pigs_deck()
@@ -302,11 +355,54 @@ class TestFakeImageProvider:
 
 
 # ---------------------------------------------------------------------------
+# Bedrock image provider
+# ---------------------------------------------------------------------------
+
+class TestBedrockImageProvider:
+    def test_stability_request_body(self):
+        provider = BedrockImageProvider("stability.stable-image-core-v1:1")
+
+        body = provider._build_request_body(ImageSpec(
+            prompt="storybook pigs",
+            negative_prompt="text",
+            seed=123,
+        ))
+
+        assert body == {
+            "prompt": "storybook pigs",
+            "mode": "text-to-image",
+            "aspect_ratio": "16:9",
+            "output_format": "png",
+            "negative_prompt": "text",
+            "seed": 123,
+        }
+
+    def test_amazon_request_body(self):
+        provider = BedrockImageProvider("amazon.titan-image-generator-v2:0")
+
+        body = provider._build_request_body(ImageSpec(
+            prompt="storybook pigs",
+            negative_prompt="text",
+            seed=123,
+        ))
+
+        assert body["taskType"] == "TEXT_IMAGE"
+        assert body["textToImageParams"] == {
+            "text": "storybook pigs",
+            "negativeText": "text",
+        }
+        assert body["imageGenerationConfig"]["seed"] == 123
+        assert body["imageGenerationConfig"]["width"] == 1280
+        assert body["imageGenerationConfig"]["height"] == 720
+
+
+# ---------------------------------------------------------------------------
 # Provider loader
 # ---------------------------------------------------------------------------
 
 class TestLoadImageProviderFromEnv:
     def test_default_is_fake(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
         monkeypatch.delenv("OKA_IMAGE_PROVIDER", raising=False)
         p = load_image_provider_from_env()
         assert isinstance(p, FakeImageProvider)
@@ -320,14 +416,51 @@ class TestLoadImageProviderFromEnv:
             load_image_provider_from_env("not_a_real_provider")
 
     def test_bedrock_without_model_id_raises(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
         monkeypatch.delenv("OKA_IMAGE_MODEL", raising=False)
         with pytest.raises(ValueError, match="OKA_IMAGE_MODEL"):
             load_image_provider_from_env("bedrock")
 
     def test_env_var_selects_fake(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
         monkeypatch.setenv("OKA_IMAGE_PROVIDER", "fake")
         p = load_image_provider_from_env()
         assert isinstance(p, FakeImageProvider)
+
+    def test_loads_bedrock_config_from_dotenv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("OMA_SKIP_DOTENV", raising=False)
+        monkeypatch.delenv("OKA_IMAGE_PROVIDER", raising=False)
+        monkeypatch.delenv("OKA_IMAGE_MODEL", raising=False)
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("AWS_PROFILE", raising=False)
+        (tmp_path / ".env").write_text(
+            "\n".join([
+                "OKA_IMAGE_MODEL=amazon.nova-canvas-v1:0",
+                "AWS_REGION=us-east-1",
+                "AWS_PROFILE=storybook-test",
+            ]),
+            encoding="utf-8",
+        )
+
+        p = load_image_provider_from_env("bedrock")
+
+        assert isinstance(p, BedrockImageProvider)
+        assert p.model_id == "amazon.nova-canvas-v1:0"
+        assert p.region == "us-east-1"
+        assert p.profile == "storybook-test"
+
+    def test_skip_dotenv_for_image_provider(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
+        monkeypatch.delenv("OKA_IMAGE_MODEL", raising=False)
+        (tmp_path / ".env").write_text(
+            "OKA_IMAGE_MODEL=amazon.nova-canvas-v1:0\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="OKA_IMAGE_MODEL"):
+            load_image_provider_from_env("bedrock")
 
 
 # ---------------------------------------------------------------------------

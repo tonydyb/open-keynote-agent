@@ -121,6 +121,7 @@ The function SHALL produce one `SlideArtSpec` per `SlideSpec`.
 The prompt SHALL include relevant DeckSpec data:
 
 - deck title
+- deck subtitle when present
 - style mood
 - audience when present
 - slide title
@@ -130,7 +131,17 @@ The prompt SHALL include relevant DeckSpec data:
 - emoji when present
 - decorations when present
 
+The planner SHALL build a generic story context from `DeckSpec.title`, `DeckSpec.subtitle`, `SlideSpec.title`, `SlideSpec.body`, and `VisualSpec.description`.
+
+The planner SHALL NOT contain story-specific hardcoded anchors such as Three Little Pigs-only, Snow White-only, or Frozen-only rules.
+
+The planner SHALL phrase model-facing instructions primarily in English, while preserving user-provided story titles and scene details from the `DeckSpec`.
+
+When known emoji hints are present, the planner SHALL convert them to semantic English object words, rather than relying only on raw emoji characters.
+
 The prompt SHALL include a "no text, no captions, no letters, no watermark" instruction.
+
+The generated `negative_prompt` SHALL include generic exclusions for text, captions, logos, watermarks, and unrelated classroom/document/poster scenes. It SHALL NOT globally exclude human characters, because many storybooks require human protagonists.
 
 The function SHALL NOT call an LLM.
 

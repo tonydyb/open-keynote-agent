@@ -34,6 +34,10 @@
 - [x] Include style mood and audience in prompts.
 - [x] Include slide title, subtitle, and body in prompts.
 - [x] Include visual description, emoji, and decorations in prompts.
+- [x] Build generic story context from DeckSpec and SlideSpec fields.
+- [x] Do not use story-specific hardcoded anchors.
+- [x] Convert known emoji hints to semantic English object words.
+- [x] Add generic negative prompt without globally excluding human characters.
 - [x] Include "no text, no captions, no letters, no watermark" instruction.
 - [x] Keep prompt construction deterministic.
 - [x] Add unit tests for prompt contents and deterministic output.

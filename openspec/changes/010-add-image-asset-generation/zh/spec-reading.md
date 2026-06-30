@@ -153,6 +153,7 @@ build_slide_art_specs(deck: DeckSpec) -> list[SlideArtSpec]
 它从已有 DeckSpec 字段拼出每页 image prompt：
 
 - deck title
+- deck subtitle
 - style mood
 - audience
 - slide title
@@ -161,6 +162,12 @@ build_slide_art_specs(deck: DeckSpec) -> list[SlideArtSpec]
 - visual description
 - emoji
 - decorations
+
+这个 planner 是通用的故事绘本 prompt compiler，不应该写死任何具体故事。例如不允许出现只服务于《三只小猪》的 `_three_pigs_anchor`，也不应该写死《白雪公主》或《冰雪奇缘》的专用分支。故事角色和场景信息必须来自 `DeckSpec` / `SlideSpec` / `VisualSpec`。
+
+面向图片模型的控制指令应该优先使用英文，同时保留用户输入的故事标题和场景描述。已知 emoji 应该转换成英文语义词，而不是只把 emoji 原样塞进 prompt，例如 `🐷` 转成 `pig`，`👸` 转成 `princess`。
+
+`negative_prompt` 应该包含通用排除项，例如文字、水印、logo、无关课堂、文档、海报等；但不能全局排除 human/human children，因为《白雪公主》《冰雪奇缘》等故事需要人类角色。
 
 prompt 必须包含：
 

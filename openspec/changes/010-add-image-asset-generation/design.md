@@ -112,6 +112,7 @@ This function is deterministic and does not call an LLM.
 Prompt construction should use existing DeckSpec fields:
 
 - deck title
+- deck subtitle
 - deck style mood
 - deck audience
 - slide title
@@ -121,6 +122,8 @@ Prompt construction should use existing DeckSpec fields:
 - visual emoji
 - visual decorations
 
+Prompt construction is a generic storybook prompt compiler. It must not include story-specific hardcoded anchors such as Three Little Pigs-only, Snow White-only, or Frozen-only rules. Any story-specific character or setting information must come from the `DeckSpec` fields, not from hardcoded planner branches.
+
 Prompt guidelines:
 
 - children's storybook illustration
@@ -129,13 +132,20 @@ Prompt guidelines:
 - match the deck's language/culture only through subject matter, not embedded text
 - include characters/scenes from the slide
 - prefer consistent visual style across slides
+- use English model-facing instructions, while preserving user-provided titles and scene details
+- convert known emoji hints into semantic English object words, for example `🐷` -> `pig`
+- use a generic negative prompt for text, captions, logos, watermarks, unrelated classroom/document/poster scenes
+- do not globally exclude human characters
 
 Example prompt:
 
 ```text
-Children's storybook watercolor illustration for "三只小猪与大灰狼".
+Children's storybook watercolor illustration.
+Story: "三只小猪与大灰狼".
 Slide 3: 第一章 — 大毛的稻草屋.
-Scene: A straw house in a sunny meadow. Include: 🐷 🌾 🏠.
+Main requirement: create an illustration that directly matches this story and this slide.
+Scene description: A straw house in a sunny meadow.
+Visual objects: pig, straw, house.
 Warm orange, yellow, brown, green palette. Cute, friendly, hand-painted.
 No text, no captions, no letters, no watermark.
 ```
