@@ -113,12 +113,20 @@ Manifest paths SHALL be portable across machines and working directories.
 The system SHALL provide:
 
 ```python
-build_slide_art_specs(deck: DeckSpec) -> list[SlideArtSpec]
+build_slide_art_specs(
+    deck: DeckSpec,
+    *,
+    slide_indexes: set[int] | None = None,
+) -> list[SlideArtSpec]
 ```
 
 The function SHALL be deterministic.
 
-The function SHALL produce one `SlideArtSpec` per `SlideSpec`.
+When `slide_indexes` is `None`, the function SHALL produce one `SlideArtSpec` per `SlideSpec`.
+
+When `slide_indexes` is supplied, the function SHALL produce art specs only for those `SlideSpec.index` values, preserving deck order.
+
+When `slide_indexes` contains an index not present in the deck, the function SHALL raise a clear `ValueError` before any provider call.
 
 The prompt SHALL include relevant DeckSpec data:
 
@@ -287,17 +295,26 @@ generate_image_assets(
     output_dir,
     force=False,
     cache_dir=None,
+    slide_indexes=None,
 ) -> ImageManifest
 ```
 
 When `cache_dir` is `None`, shared cache SHALL be disabled.
+
+When `slide_indexes` is `None`, the function SHALL generate or reuse assets for every slide.
+
+When `slide_indexes` is supplied, the function SHALL generate or reuse assets only for the selected slides.
+
+For selected-slide runs, `art_spec.json` and `image_manifest.json` SHALL describe only the selected slides for that invocation.
+
+Selected-slide runs SHALL NOT delete existing files for unselected slides under `output_dir`.
 
 The function SHALL:
 
 1. Build slide art specs.
 2. Create `<output_dir>/assets/`.
 3. Load existing `image_manifest.json` when present.
-4. Generate or reuse `slide_XX.png` for each slide.
+4. Generate or reuse `slide_XX.png` for each selected slide.
 5. Write `art_spec.json`.
 6. Write `image_manifest.json`.
 7. Return `ImageManifest`.
@@ -347,7 +364,24 @@ The command SHALL support:
 ```text
 --output PATH
 --provider TEXT
+--slides TEXT
 --force
+```
+
+`--slides` SHALL accept comma-separated positive slide indexes and inclusive ranges, for example:
+
+```text
+1,4,9-12
+```
+
+When `--slides` is omitted, the command SHALL generate all slides.
+
+Invalid selectors such as `1,,2`, `a`, `0`, or `3-1` SHALL fail before image generation.
+
+Selectors containing slide indexes absent from the deck SHALL fail before image generation with a clear error, for example:
+
+```text
+slide 99 does not exist in deck; available slides: 1-18
 ```
 
 The command SHALL:
@@ -355,10 +389,11 @@ The command SHALL:
 1. Read and validate `DeckSpec`.
 2. Create a unique default output directory when `--output` is omitted.
 3. Load the selected image provider.
-4. Generate or reuse assets.
-5. Write `art_spec.json`.
-6. Write `image_manifest.json`.
-7. Print asset directory and manifest path.
+4. Parse and validate `--slides` when supplied.
+5. Generate or reuse assets.
+6. Write `art_spec.json`.
+7. Write `image_manifest.json`.
+8. Print asset directory and manifest path.
 
 Default output directories SHALL use:
 
@@ -387,5 +422,7 @@ Unit tests SHALL cover:
 - prompt changes invalidate cache
 - forced regeneration
 - CLI `--force` bypasses any configured cache and regenerates
+- selected slide generation through `slide_indexes`
+- CLI `--slides` output and validation
 - CLI output
 - CLI does not call Keynote tools

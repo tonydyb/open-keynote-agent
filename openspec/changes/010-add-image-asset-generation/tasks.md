@@ -30,6 +30,8 @@
 
 - [x] Implement `build_slide_art_specs(deck)`.
 - [x] Produce one `SlideArtSpec` per DeckSpec slide.
+- [x] Support optional selected-slide planning via `slide_indexes`.
+- [x] Raise a clear error when selected slide indexes are absent from the deck.
 - [x] Include deck title in prompts.
 - [x] Include style mood and audience in prompts.
 - [x] Include style typography in prompts when present.
@@ -66,6 +68,9 @@
 
 - [x] Implement prompt hash: `sha256(f"{provider_name}\n{canonical_json}").hexdigest()[:16]`.
 - [x] Implement `generate_image_assets(deck, provider, *, output_dir, force=False, cache_dir=None)`.
+- [x] Add optional `slide_indexes` parameter to generate/reuse only selected slides.
+- [x] For selected-slide runs, write `art_spec.json` and `image_manifest.json` for selected slides only.
+- [x] Do not delete existing unselected slide assets in `output_dir`.
 - [x] Create `<output_dir>/assets/`.
 - [x] Save files as `assets/slide_01.png`, `assets/slide_02.png`, etc.
 - [x] Load existing `image_manifest.json` from `output_dir` when present.
@@ -85,17 +90,20 @@
 - [x] Add `oka generate-images <deck_spec.json>`.
 - [x] Add `--output` option.
 - [x] Add `--provider` option.
+- [x] Add `--slides` option accepting selectors such as `1,4,9-12`.
 - [x] Add `--force` option.
 - [x] Validate input path exists and is a file.
 - [x] Read and validate DeckSpec.
 - [x] Use unique default output directory under `.runs/<YYYYMMDDTHHMMSSZ>-images/`.
 - [x] Load image provider via `load_image_provider_from_env`.
 - [x] Generate or reuse assets via `generate_image_assets`; callers may pass `cache_dir` to enable shared cache.
+- [x] Validate `--slides` syntax and missing slide indexes before image generation.
 - [x] Print asset directory and manifest path.
 - [x] Clean up auto-created default dir on failure.
 - [x] Ensure CLI does not open Keynote or call `keynote.*`.
 - [x] Add CLI tests.
 - [x] Add CLI test proving `--force` regenerates (cached=False in manifest).
+- [x] Add unit and CLI tests for selected slide generation.
 
 ## 7. Documentation
 

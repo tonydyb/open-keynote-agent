@@ -104,10 +104,16 @@ Manifest paths are portable:
 Add:
 
 ```python
-def build_slide_art_specs(deck: DeckSpec) -> list[SlideArtSpec]: ...
+def build_slide_art_specs(
+    deck: DeckSpec,
+    *,
+    slide_indexes: set[int] | None = None,
+) -> list[SlideArtSpec]: ...
 ```
 
 This function is deterministic and does not call an LLM.
+
+When `slide_indexes` is supplied, the function only returns art specs for those `SlideSpec.index` values, preserving deck order. If a requested slide index is not present in the deck, it raises a clear `ValueError` before any provider call.
 
 Prompt construction should use existing DeckSpec fields:
 
@@ -338,6 +344,7 @@ def generate_image_assets(
     output_dir: Path,
     force: bool = False,
     cache_dir: Path | None = None,
+    slide_indexes: set[int] | None = None,
 ) -> ImageManifest: ...
 ```
 
@@ -352,6 +359,8 @@ Behavior:
 7. Return `ImageManifest`.
 
 If `cache_dir` is `None`, shared cache is disabled.
+
+If `slide_indexes` is supplied, only those slides are generated or reused. `art_spec.json` and `image_manifest.json` describe only the selected slides for that run. Existing files for unselected slides under `output_dir` are not deleted.
 
 Write `image_manifest.json` atomically enough for local CLI use by writing `image_manifest.json.tmp` in the same directory and then calling `Path.replace()` to replace the final manifest.
 
@@ -368,6 +377,7 @@ Options:
 ```text
 --output PATH       output directory, default .runs/<YYYYMMDDTHHMMSSZ>-images/
 --provider TEXT     image provider, default from OKA_IMAGE_PROVIDER or fake
+--slides TEXT       optional slide selector such as 1,4,9-12; default all slides
 --force             ignore cache and regenerate
 ```
 
@@ -376,8 +386,11 @@ The command:
 1. Reads and validates `DeckSpec`.
 2. Creates output directory.
 3. Loads image provider.
-4. Calls `generate_image_assets`.
-5. Prints asset directory and manifest path.
+4. Parses `--slides` when supplied and validates requested slide indexes against the deck.
+5. Calls `generate_image_assets`.
+6. Prints asset directory and manifest path.
+
+The slide selector accepts comma-separated positive integers and inclusive ranges, for example `1,4,9-12`. Invalid selectors such as `1,,2`, `a`, `0`, or `3-1` fail before image generation.
 
 This command must not open Keynote and must not call `keynote.*`.
 

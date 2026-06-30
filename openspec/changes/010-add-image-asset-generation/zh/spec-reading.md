@@ -374,18 +374,27 @@ def generate_image_assets(
     output_dir: Path,
     force: bool = False,
     cache_dir: Path | None = None,
+    slide_indexes: set[int] | None = None,
 ) -> ImageManifest:
     ...
 ```
 
 如果 `cache_dir is None`，共享缓存关闭。
 
+如果传入 `slide_indexes`，只生成或复用这些 slide index 对应的图片。`art_spec.json` 和 `image_manifest.json` 只记录本次选中的页；`output_dir/assets/` 里已有但这次没有选中的图片不会被删除。
+
+如果 `slide_indexes` 里包含 DeckSpec 不存在的页码，必须在调用 provider 之前报错，例如：
+
+```text
+slide 99 does not exist in deck; available slides: 1-18
+```
+
 流程：
 
-1. 生成 SlideArtSpec。
+1. 生成 SlideArtSpec；如果指定了 `slide_indexes`，只生成选中页的 SlideArtSpec。
 2. 创建 `<output_dir>/assets/`。
 3. 读取已有 `image_manifest.json`。
-4. 对每页检查缓存。
+4. 对每个选中页检查缓存。
 5. 没缓存则调用 provider。
 6. 写 `art_spec.json`。
 7. 写 `image_manifest.json`。
@@ -453,8 +462,26 @@ oka generate-images <deck_spec.json>
 ```text
 --output PATH
 --provider TEXT
+--slides TEXT
 --force
 ```
+
+`--slides` 用于只生成部分页面，适合先低成本预览几张关键图：
+
+```bash
+uv run oka generate-images /tmp/snow-white-plan/deck_spec_en.json \
+  --provider bedrock \
+  --slides 1,4,9-12 \
+  --output /tmp/snow-white-preview
+```
+
+语法是逗号分隔的正整数和闭区间范围：
+
+```text
+1,4,9-12
+```
+
+不传 `--slides` 时生成全部页面。非法选择器，例如 `1,,2`、`a`、`0`、`3-1`，必须在图片生成前失败。
 
 示例：
 

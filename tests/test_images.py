@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 import open_keynote_agent.cli as cli_module
 from open_keynote_agent.cli import app
 from open_keynote_agent.deck.schema import DeckSpec
-from open_keynote_agent.images.generator import _prompt_hash, generate_image_assets
+from open_keynote_agent.images.generator import _prompt_hash, generate_image_assets, parse_slide_selector
 from open_keynote_agent.images.planner import _NO_TEXT_INSTRUCTION, build_slide_art_specs
 from open_keynote_agent.images.provider import (
     BedrockImageProvider,
@@ -83,6 +83,26 @@ def _write_deck_spec(tmp_path: Path, n_slides: int = 3) -> Path:
         encoding="utf-8",
     )
     return p
+
+
+# ---------------------------------------------------------------------------
+# Slide selector parsing
+# ---------------------------------------------------------------------------
+
+class TestParseSlideSelector:
+    def test_single_indexes(self):
+        assert parse_slide_selector("1,4,9") == {1, 4, 9}
+
+    def test_ranges(self):
+        assert parse_slide_selector("1-3,5") == {1, 2, 3, 5}
+
+    def test_strips_spaces_and_deduplicates(self):
+        assert parse_slide_selector(" 1, 2-3, 3 ") == {1, 2, 3}
+
+    @pytest.mark.parametrize("value", ["", " ", "1,,2", "a", "3-1", "0", "-1", "1-", "1-2-3"])
+    def test_invalid_selector_raises(self, value: str):
+        with pytest.raises(ValueError):
+            parse_slide_selector(value)
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +199,16 @@ class TestBuildSlideArtSpecs:
         deck = _three_pigs_deck()
         specs = build_slide_art_specs(deck)
         assert len(specs) == len(deck.slides)
+
+    def test_can_filter_selected_slides(self):
+        deck = _three_pigs_deck()
+        specs = build_slide_art_specs(deck, slide_indexes={1, 4})
+        assert [s.slide_index for s in specs] == [1, 4]
+
+    def test_filter_rejects_missing_slide(self):
+        deck = _three_pigs_deck()
+        with pytest.raises(ValueError, match="slide 99 does not exist"):
+            build_slide_art_specs(deck, slide_indexes={99})
 
     def test_sequential_indexes(self):
         deck = _three_pigs_deck()
@@ -569,6 +599,34 @@ class TestGenerateImageAssets:
         pngs = sorted((tmp_path / "assets").glob("*.png"))
         assert len(pngs) == len(deck.slides)
 
+    def test_generates_only_selected_slides(self, tmp_path: Path):
+        deck = _three_pigs_deck()
+        manifest = generate_image_assets(
+            deck,
+            FakeImageProvider(),
+            output_dir=tmp_path,
+            slide_indexes={1, 4},
+        )
+
+        assert sorted(p.name for p in (tmp_path / "assets").glob("*.png")) == [
+            "slide_01.png",
+            "slide_04.png",
+        ]
+        assert [a.slide_index for a in manifest.assets] == [1, 4]
+
+        art_spec = json.loads((tmp_path / "art_spec.json").read_text())
+        assert [s["slide_index"] for s in art_spec["slides"]] == [1, 4]
+
+    def test_selected_missing_slide_raises(self, tmp_path: Path):
+        deck = _three_pigs_deck()
+        with pytest.raises(ValueError, match="slide 99 does not exist"):
+            generate_image_assets(
+                deck,
+                FakeImageProvider(),
+                output_dir=tmp_path,
+                slide_indexes={99},
+            )
+
     def test_png_files_have_valid_signature(self, tmp_path: Path):
         deck = _three_pigs_deck()
         generate_image_assets(deck, FakeImageProvider(), output_dir=tmp_path)
@@ -733,6 +791,47 @@ class TestGenerateImagesCLI:
         assert (out / "image_manifest.json").exists()
         assert (out / "assets").is_dir()
         assert len(list((out / "assets").glob("*.png"))) == 3
+
+    def test_slides_option_generates_selected_assets(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path, n_slides=5)
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out),
+            "--provider", "fake", "--slides", "1,4-5",
+        ])
+        assert result.exit_code == 0
+        assert sorted(p.name for p in (out / "assets").glob("*.png")) == [
+            "slide_01.png",
+            "slide_04.png",
+            "slide_05.png",
+        ]
+
+        manifest = ImageManifest.model_validate_json(
+            (out / "image_manifest.json").read_text()
+        )
+        assert [a.slide_index for a in manifest.assets] == [1, 4, 5]
+
+        art_spec = json.loads((out / "art_spec.json").read_text())
+        assert [s["slide_index"] for s in art_spec["slides"]] == [1, 4, 5]
+
+    def test_slides_option_rejects_missing_slide(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path, n_slides=3)
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--provider", "fake", "--slides", "99",
+        ])
+        assert result.exit_code != 0
+        assert "slide 99 does not exist" in result.output
+
+    def test_slides_option_rejects_invalid_selector(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--provider", "fake", "--slides", "3-1",
+        ])
+        assert result.exit_code != 0
+        assert "invalid slide range" in result.output
 
     def test_writes_art_spec_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)

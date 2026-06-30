@@ -23,7 +23,7 @@ from open_keynote_agent.deck.planner import plan_deck_bundle
 from open_keynote_agent.deck.outline import render_deck_outline
 from open_keynote_agent.deck.schema import DeckSpec
 from open_keynote_agent.renderers.storybook import render_storybook_deck
-from open_keynote_agent.images.generator import generate_image_assets
+from open_keynote_agent.images.generator import generate_image_assets, parse_slide_selector
 from open_keynote_agent.images.provider import UnsupportedImageProviderError, load_image_provider_from_env
 
 app = typer.Typer(help="Open Keynote Agent CLI")
@@ -487,6 +487,7 @@ def generate_images(
     deck_spec_path: Path = typer.Argument(..., help="Path to deck_spec_en.json or deck_spec.json produced by oka deck-plan."),
     output: Path | None = typer.Option(None, "--output", help="Output directory (default: unique dir under .runs/)."),
     provider: str | None = typer.Option(None, "--provider", help="Image provider: fake or bedrock (default from OKA_IMAGE_PROVIDER or fake)."),
+    slides: str | None = typer.Option(None, "--slides", help='Slides to generate, e.g. "1,4,9-12" (default: all slides).'),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate all images."),
 ) -> None:
     """Generate per-slide illustration PNG assets from a validated DeckSpec."""
@@ -503,6 +504,12 @@ def generate_images(
     try:
         image_provider = load_image_provider_from_env(provider)
     except (ValueError, UnsupportedImageProviderError) as exc:
+        console.print(f"[red]Error:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    try:
+        slide_indexes = parse_slide_selector(slides) if slides is not None else None
+    except ValueError as exc:
         console.print(f"[red]Error:[/] {exc}")
         raise typer.Exit(code=1) from exc
 
@@ -524,7 +531,12 @@ def generate_images(
     try:
         shared_cache = Path(".runs") / "image-cache" / image_provider.name
         manifest = generate_image_assets(
-            deck, image_provider, output_dir=out_dir, force=force, cache_dir=shared_cache
+            deck,
+            image_provider,
+            output_dir=out_dir,
+            force=force,
+            cache_dir=shared_cache,
+            slide_indexes=slide_indexes,
         )
     except Exception as exc:
         console.print(f"[red]Error:[/] {exc}")

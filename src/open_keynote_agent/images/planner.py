@@ -149,10 +149,25 @@ def _build_prompt(deck: DeckSpec, slide: SlideSpec) -> str:
     return " ".join(parts)
 
 
-def build_slide_art_specs(deck: DeckSpec) -> list[SlideArtSpec]:
+def build_slide_art_specs(
+    deck: DeckSpec,
+    *,
+    slide_indexes: set[int] | None = None,
+) -> list[SlideArtSpec]:
     """Return one SlideArtSpec per slide. Deterministic — no LLM called."""
+    if slide_indexes is not None:
+        available = {slide.index for slide in deck.slides}
+        missing = sorted(slide_indexes - available)
+        if missing:
+            available_range = f"1-{max(available)}" if available else "none"
+            raise ValueError(
+                f"slide {missing[0]} does not exist in deck; available slides: {available_range}"
+            )
+
     specs: list[SlideArtSpec] = []
     for slide in deck.slides:
+        if slide_indexes is not None and slide.index not in slide_indexes:
+            continue
         prompt = _build_prompt(deck, slide)
         specs.append(SlideArtSpec(
             slide_index=slide.index,

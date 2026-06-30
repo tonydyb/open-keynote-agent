@@ -11,6 +11,45 @@ from open_keynote_agent.images.provider import ImageProvider
 from open_keynote_agent.images.schema import ImageAsset, ImageManifest, SlideArtSpec
 
 
+def parse_slide_selector(value: str) -> set[int]:
+    """Parse CLI slide selector syntax such as "1,4,9-12"."""
+    text = value.strip()
+    if not text:
+        raise ValueError("slide selector cannot be empty")
+
+    indexes: set[int] = set()
+    for part in text.split(","):
+        token = part.strip()
+        if not token:
+            raise ValueError(f"invalid slide selector {value!r}: empty item")
+
+        if "-" in token:
+            pieces = token.split("-")
+            if len(pieces) != 2 or not pieces[0].strip() or not pieces[1].strip():
+                raise ValueError(f"invalid slide range {token!r}")
+            try:
+                start = int(pieces[0])
+                end = int(pieces[1])
+            except ValueError as exc:
+                raise ValueError(f"invalid slide range {token!r}") from exc
+            if start <= 0 or end <= 0:
+                raise ValueError("slide indexes must be positive integers")
+            if start > end:
+                raise ValueError(f"invalid slide range {token!r}: start must be <= end")
+            indexes.update(range(start, end + 1))
+            continue
+
+        try:
+            index = int(token)
+        except ValueError as exc:
+            raise ValueError(f"invalid slide index {token!r}") from exc
+        if index <= 0:
+            raise ValueError("slide indexes must be positive integers")
+        indexes.add(index)
+
+    return indexes
+
+
 def _prompt_hash(art_spec: SlideArtSpec, provider_name: str) -> str:
     canonical = json.dumps(
         art_spec.image.model_dump(mode="json"),
@@ -43,7 +82,10 @@ def generate_image_assets(
     output_dir: Path,
     force: bool = False,
     cache_dir: Path | None = None,
+    slide_indexes: set[int] | None = None,
 ) -> ImageManifest:
+    art_specs = build_slide_art_specs(deck, slide_indexes=slide_indexes)
+
     assets_dir = output_dir / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
 
@@ -59,7 +101,6 @@ def generate_image_assets(
         for asset in existing.assets:
             existing_by_index[asset.slide_index] = asset
 
-    art_specs = build_slide_art_specs(deck)
     assets: list[ImageAsset] = []
 
     for art_spec in art_specs:
