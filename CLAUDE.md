@@ -70,24 +70,27 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 ## Architecture (Image Prompt Director — change 011)
 
 ### Director module (`images/director.py`)
-- `EMOJI_WORDS` dict — maps emoji to English object words (public; planner re-exports `_NO_TEXT_INSTRUCTION`)
+- `EMOJI_WORDS` dict — maps emoji to English object words
+- `STYLE_MODES` dict — maps mode ID → preset description; `DEFAULT_STYLE_MODE = "soft_storybook_watercolor"`
 - `DirectedImagePrompt` — Pydantic v2 model (`extra="forbid"`): `slide_index`, `slide_title`, `primary_scene`, `required_subjects`, `forbidden_subjects`, `composition`, `style_notes`, `story_context`, `prompt`, `negative_prompt`
-- `build_directed_image_prompt(deck, slide)` → `DirectedImagePrompt` — deterministic, no LLM
-- Prompt ordering: Primary scene first → Required subjects → Composition → Style → Story context → No-text instruction
-- `primary_scene` = `"{slide.title}: {slide.visual.description} ..."` (slide title always first)
+- `build_directed_image_prompt(deck, slide, *, style_mode=DEFAULT_STYLE_MODE)` → `DirectedImagePrompt` — deterministic, no LLM; raises `ValueError` for unknown mode
+- Prompt ordering for fixed preset modes: Image style anchor → Primary scene → Required subjects → Composition → Style → Story context → No-text instruction
+- Prompt ordering for `deck_style`: Primary scene → Required subjects → Composition → Style → Story context → No-text instruction
+- `primary_scene` leads with `slide.visual.description`; slide title appended as `[Slide: <title>]`
 - `story_context` = `"{deck.title}[: {deck.subtitle}]"` — placed AFTER primary scene
-- Generic forbidden subjects (text, caption, letters, words, watermark, logo, signature, document, poster, user interface) + `DeckSpec.style.avoid`
-- Conservative slide-specific drift exclusions derived from description keywords — no story-title branches
-- Composition defaults by `slide.kind` (cover → centered; chapter/climax → scene; ending/lesson → closing)
-- Style notes from `deck.style.mood`, `audience`, `typography`, `palette`, `visual.decorations` only — no injected art styles
+- Required subjects: emoji words + noun phrases from description + slide title/subtitle/body (conservative heuristic)
+- Generic forbidden subjects + slide-specific drift exclusions — no story-title branches
+- Style guardrails in `negative_prompt`: `not photorealistic, not cinematic, not realistic portrait, not movie still, not 3D render, not adult editorial illustration`; in `deck_style`, any guardrail whose signal word appears positively in the mood string is suppressed (e.g. mood `"cinematic 3D render"` removes `not cinematic` and `not 3D render`); fixed preset modes always keep all guardrails
+- **Fixed preset modes** (`soft_storybook_watercolor`, `cute_hand_drawn_cartoon`, `paper_cut_collage_storybook`): use preset as Style section; do NOT include `mood/typography/palette/decorations`; MAY include `audience`
+- **`deck_style` mode**: uses `DeckSpec.style.mood/audience/typography/palette` and `visual.decorations`; no preset description
+- Generated `art_spec.json` records the selected mode in `ImageSpec.style`, e.g. `"style": "soft_storybook_watercolor"`, instead of the legacy neutral `deck-specified` value
 
 ### Planner (`images/planner.py`) — updated in 011
-- Calls `build_directed_image_prompt(deck, slide)` for each slide
+- `build_slide_art_specs(deck, *, slide_indexes, style_mode=DEFAULT_STYLE_MODE)` — threads style_mode to director
 - `ImageSpec.prompt` ← `directed.prompt`; `ImageSpec.negative_prompt` ← `directed.negative_prompt`
-- `_EMOJI_WORDS` dict removed from planner; `EMOJI_WORDS` lives in `director.py`
 
-### Generator dry-run (`images/generator.py`) — updated in 011
-- `generate_image_assets(..., dry_run=False)` — new `dry_run` parameter
+### Generator (`images/generator.py`) — updated in 011
+- `generate_image_assets(..., dry_run=False, style_mode=DEFAULT_STYLE_MODE)` — threads both params through
 - `dry_run=True`: builds `SlideArtSpec`s, writes `art_spec.json`, returns empty manifest, does NOT call provider, does NOT write `image_manifest.json`, does NOT create PNGs
 
 ### CLI dry-run (`cli.py`) — updated in 011

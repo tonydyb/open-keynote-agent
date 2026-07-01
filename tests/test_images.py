@@ -239,36 +239,47 @@ class TestBuildSlideArtSpecs:
         for spec in specs:
             assert _NO_TEXT_INSTRUCTION in spec.image.prompt
 
-    def test_prompt_contains_mood(self):
+    def test_prompt_contains_mood_in_deck_style_mode(self):
+        # deck_style mode uses DeckSpec.style.mood; fixed presets do not.
         deck = _three_pigs_deck()
-        specs = build_slide_art_specs(deck)
+        specs = build_slide_art_specs(deck, style_mode="deck_style")
         for spec in specs:
             assert deck.style.mood in spec.image.prompt
 
+    def test_default_mode_does_not_include_deck_mood(self):
+        # Default (soft_storybook_watercolor) uses preset, not deck mood text.
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["mood"] = "flat vector paper-cut collage"
+        deck = DeckSpec(**raw)
+        spec = build_slide_art_specs(deck)[0]
+        assert "flat vector paper-cut collage" not in spec.image.prompt
+
     def test_prompt_contains_audience(self):
+        # Audience is included even in fixed preset modes.
         deck = _three_pigs_deck()
         specs = build_slide_art_specs(deck)
         for spec in specs:
             assert "children" in spec.image.prompt
 
-    def test_prompt_contains_typography_when_present(self):
+    def test_prompt_contains_typography_in_deck_style_mode(self):
         raw = _minimal_deck_dict(n_slides=1)
         raw["style"]["typography"] = "bold comic lettering"
         deck = DeckSpec(**raw)
-        spec = build_slide_art_specs(deck)[0]
+        spec = build_slide_art_specs(deck, style_mode="deck_style")[0]
         assert "typography: bold comic lettering" in spec.image.prompt
 
-    def test_prompt_does_not_inject_fixed_art_styles(self):
+    def test_prompt_does_not_inject_styles_outside_selected_mode(self):
+        # Using deck_style: deck mood appears, preset keywords must not appear.
         raw = _minimal_deck_dict(n_slides=1)
         raw["style"]["mood"] = "flat vector paper-cut collage"
         deck = DeckSpec(**raw)
-        spec = build_slide_art_specs(deck)[0]
-        prompt = spec.image.prompt.lower()
-        assert "flat vector paper-cut collage" in prompt
-        assert "watercolor" not in prompt
-        assert "soft lighting" not in prompt
-        assert "warm children's picture book" not in prompt
-        assert "expressive characters" not in prompt
+        spec = build_slide_art_specs(deck, style_mode="deck_style")[0]
+        prompt_lower = spec.image.prompt.lower()
+        assert "flat vector paper-cut collage" in prompt_lower
+        # Preset descriptions must not be mixed in when deck_style is selected.
+        assert "soft_storybook_watercolor" not in prompt_lower
+        assert "cute_hand_drawn_cartoon" not in prompt_lower
+        assert "paper_cut_collage_storybook" not in prompt_lower
 
     def test_prompt_contains_visual_description(self):
         deck = _three_pigs_deck()
@@ -377,9 +388,9 @@ class TestBuildSlideArtSpecs:
         assert "watercolor" in spec.image.negative_prompt
         assert "soft lighting" in spec.image.negative_prompt
 
-    def test_prompt_contains_palette(self):
+    def test_prompt_contains_palette_in_deck_style_mode(self):
         deck = _three_pigs_deck()
-        specs = build_slide_art_specs(deck)
+        specs = build_slide_art_specs(deck, style_mode="deck_style")
         for spec in specs:
             assert "orange" in spec.image.prompt
 
@@ -1146,11 +1157,18 @@ class TestBuildDirectedImagePrompt:
         assert "evil queen" in d.primary_scene.lower()
         assert "magic mirror" in d.primary_scene.lower()
 
-    def test_prompt_starts_with_primary_scene_section(self):
+    def test_deck_style_prompt_starts_with_primary_scene_section(self):
         from open_keynote_agent.images.director import build_directed_image_prompt
         deck = self._snow_white_deck()
-        d = build_directed_image_prompt(deck, deck.slides[0])
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
         assert d.prompt.startswith("Primary scene, follow exactly:")
+
+    def test_fixed_preset_prompt_starts_with_style_anchor(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="paper_cut_collage_storybook")
+        assert d.prompt.startswith("Image style, follow strongly:")
+        assert "paper_cut_collage_storybook" in d.prompt.split("\n\n", 1)[0]
 
     def test_story_context_after_primary_scene_in_prompt(self):
         from open_keynote_agent.images.director import build_directed_image_prompt
@@ -1217,22 +1235,31 @@ class TestBuildDirectedImagePrompt:
         assert "photorealistic" in d.negative_prompt
         assert "gore" in d.negative_prompt
 
-    def test_no_fixed_art_styles_injected(self):
+    def test_no_fixed_art_styles_injected_outside_selected_mode(self):
+        # deck_style mode: no preset descriptions should appear in prompt.
         from open_keynote_agent.images.director import build_directed_image_prompt
         deck = self._snow_white_deck()
-        d = build_directed_image_prompt(deck, deck.slides[0])
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
         prompt_lower = d.prompt.lower()
-        for term in ("watercolor", "oil painting", "cinematic", "3d render",
-                     "soft lighting", "warm picture book", "expressive characters"):
-            assert term not in prompt_lower, f"Fixed art style injected: {term!r}"
+        for term in ("oil painting", "soft lighting", "warm picture book",
+                     "paper-cut", "hand-drawn cartoon"):
+            assert term not in prompt_lower, f"Unexpected style term injected: {term!r}"
 
-    def test_style_notes_from_deck_style_only(self):
+    def test_style_notes_for_deck_style_use_deck_fields(self):
         from open_keynote_agent.images.director import build_directed_image_prompt
         deck = self._snow_white_deck()
-        d = build_directed_image_prompt(deck, deck.slides[0])
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
         # Style section should contain mood and audience from DeckSpec
         assert any("magical storybook" in note for note in d.style_notes)
         assert any("children" in note for note in d.style_notes)
+
+    def test_fixed_preset_style_notes_use_preset_not_deck_mood(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()  # mood = "magical storybook"
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="soft_storybook_watercolor")
+        # Preset description should appear; deck mood should not.
+        assert any("soft_storybook_watercolor" in note for note in d.style_notes)
+        assert not any("magical storybook" in note for note in d.style_notes)
 
     def test_composition_set_for_cover(self):
         from open_keynote_agent.images.director import build_directed_image_prompt
@@ -1282,20 +1309,20 @@ class TestBuildDirectedImagePrompt:
         for allowed_term in ("human", "children", "animal", "castle", "forest", "food"):
             assert allowed_term not in neg_terms, f"Globally forbidden: {allowed_term!r}"
 
-    def test_palette_in_style_notes(self):
+    def test_palette_in_style_notes_in_deck_style_mode(self):
         from open_keynote_agent.images.director import build_directed_image_prompt
         raw = _minimal_deck_dict(n_slides=1)
         raw["style"]["palette"] = ["#FFE5D9", "#FFD700"]
         deck = DeckSpec(**raw)
-        d = build_directed_image_prompt(deck, deck.slides[0])
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
         assert any("#FFE5D9" in note for note in d.style_notes)
 
-    def test_typography_in_style_notes_when_present(self):
+    def test_typography_in_style_notes_in_deck_style_mode(self):
         from open_keynote_agent.images.director import build_directed_image_prompt
         raw = _minimal_deck_dict(n_slides=1)
         raw["style"]["typography"] = "bold comic lettering"
         deck = DeckSpec(**raw)
-        d = build_directed_image_prompt(deck, deck.slides[0])
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
         assert any("bold comic lettering" in note for note in d.style_notes)
 
     def test_body_bullets_in_primary_scene(self):
@@ -1308,11 +1335,12 @@ class TestBuildDirectedImagePrompt:
         assert "Muddy floor" in d.primary_scene
 
     def test_planner_uses_director_prompt(self):
-        # Verify planner delegates to director — prompt starts with "Primary scene".
+        # Verify planner delegates to director — default fixed preset starts with style anchor.
         deck = _three_pigs_deck()
         specs = build_slide_art_specs(deck)
         for spec in specs:
-            assert spec.image.prompt.startswith("Primary scene, follow exactly:")
+            assert spec.image.prompt.startswith("Image style, follow strongly:")
+            assert "Primary scene, follow exactly:" in spec.image.prompt
 
 
 # ---------------------------------------------------------------------------
@@ -1370,7 +1398,8 @@ class TestDryRunGeneration:
         for entry in data["slides"]:
             assert "image" in entry
             assert "prompt" in entry["image"]
-            assert entry["image"]["prompt"].startswith("Primary scene, follow exactly:")
+            assert entry["image"]["prompt"].startswith("Image style, follow strongly:")
+            assert "Primary scene, follow exactly:" in entry["image"]["prompt"]
 
     def test_dry_run_returns_empty_manifest(self, tmp_path: Path):
         from open_keynote_agent.images.generator import generate_image_assets
@@ -1479,3 +1508,307 @@ class TestDryRunCLI:
         cli_runner.invoke(app, ["generate-images", str(spec_path), "--dry-run"])
         runs_dirs = list((tmp_path / ".runs").glob("*-dry-run*"))
         assert len(runs_dirs) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Style modes (change 011)
+# ---------------------------------------------------------------------------
+
+class TestStyleModes:
+    """Tests for the four style mode IDs and guardrails."""
+
+    def _deck(self) -> DeckSpec:
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["mood"] = "custom deck mood"
+        raw["style"]["audience"] = "children"
+        raw["style"]["palette"] = ["#AABBCC"]
+        raw["style"]["typography"] = "round serif"
+        raw["slides"][0]["visual"]["decorations"] = ["glowing stars"]
+        return DeckSpec(**raw)
+
+    # --- STYLE_MODES registry ---
+
+    def test_style_modes_registry_has_all_ids(self):
+        from open_keynote_agent.images.director import STYLE_MODES
+        for mode_id in ("soft_storybook_watercolor", "cute_hand_drawn_cartoon",
+                        "paper_cut_collage_storybook", "deck_style"):
+            assert mode_id in STYLE_MODES
+
+    def test_default_style_mode_is_soft_storybook_watercolor(self):
+        from open_keynote_agent.images.director import DEFAULT_STYLE_MODE
+        assert DEFAULT_STYLE_MODE == "soft_storybook_watercolor"
+
+    # --- Unknown style mode ---
+
+    def test_unknown_style_mode_raises_value_error(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        with pytest.raises(ValueError, match="unknown style mode"):
+            build_directed_image_prompt(deck, deck.slides[0], style_mode="not_a_real_mode")
+
+    def test_planner_unknown_style_mode_raises(self):
+        deck = self._deck()
+        with pytest.raises(ValueError, match="unknown style mode"):
+            build_slide_art_specs(deck, style_mode="not_a_real_mode")
+
+    # --- Fixed preset: soft_storybook_watercolor ---
+
+    def test_soft_storybook_watercolor_appears_in_style_notes(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="soft_storybook_watercolor")
+        assert any("soft_storybook_watercolor" in note for note in d.style_notes)
+
+    def test_soft_storybook_watercolor_appears_in_prompt(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="soft_storybook_watercolor")
+        assert "soft_storybook_watercolor" in d.prompt
+        assert "watercolor texture" in d.prompt
+
+    def test_soft_storybook_watercolor_does_not_include_deck_mood(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="soft_storybook_watercolor")
+        assert "custom deck mood" not in d.prompt
+
+    def test_soft_storybook_watercolor_does_not_include_palette(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="soft_storybook_watercolor")
+        assert "#AABBCC" not in d.prompt
+
+    def test_soft_storybook_watercolor_does_not_include_typography(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="soft_storybook_watercolor")
+        assert "round serif" not in d.prompt
+
+    def test_soft_storybook_watercolor_does_not_include_decorations(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="soft_storybook_watercolor")
+        assert "glowing stars" not in d.prompt
+
+    def test_soft_storybook_watercolor_includes_audience(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="soft_storybook_watercolor")
+        assert "children" in d.prompt
+
+    # --- Fixed preset: cute_hand_drawn_cartoon ---
+
+    def test_cute_hand_drawn_cartoon_appears_in_prompt(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="cute_hand_drawn_cartoon")
+        assert "cute_hand_drawn_cartoon" in d.prompt
+        assert "rounded simplified characters" in d.prompt
+
+    def test_cute_hand_drawn_cartoon_does_not_include_deck_mood(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="cute_hand_drawn_cartoon")
+        assert "custom deck mood" not in d.prompt
+
+    # --- Fixed preset: paper_cut_collage_storybook ---
+
+    def test_paper_cut_collage_storybook_appears_in_prompt(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="paper_cut_collage_storybook")
+        assert "paper_cut_collage_storybook" in d.prompt
+        assert "layered paper texture" in d.prompt
+
+    def test_paper_cut_collage_does_not_include_deck_mood(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="paper_cut_collage_storybook")
+        assert "custom deck mood" not in d.prompt
+
+    # --- deck_style mode ---
+
+    def test_deck_style_uses_deck_mood(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
+        assert "custom deck mood" in d.prompt
+
+    def test_deck_style_uses_palette(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
+        assert "#AABBCC" in d.prompt
+
+    def test_deck_style_uses_typography(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
+        assert "round serif" in d.prompt
+
+    def test_deck_style_uses_decorations(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
+        assert "glowing stars" in d.prompt
+
+    def test_deck_style_does_not_include_any_preset_description(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt, STYLE_MODES
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
+        for preset_id, preset_desc in STYLE_MODES.items():
+            if preset_id == "deck_style":
+                continue
+            assert preset_id not in d.prompt
+            # Check a unique fragment from each preset description
+            if preset_desc:
+                first_phrase = preset_desc.split(",")[0]
+                assert first_phrase not in d.prompt, f"Preset description leaked: {first_phrase!r}"
+
+    # --- Style guardrails ---
+
+    def test_style_guardrails_in_negative_prompt_default_mode(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        neg = d.negative_prompt or ""
+        for term in ("not photorealistic", "not cinematic", "not realistic portrait",
+                     "not movie still", "not 3D render", "not adult editorial illustration"):
+            assert term in neg, f"Missing guardrail: {term!r}"
+
+    def test_style_guardrails_in_negative_prompt_deck_style_mode(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._deck()
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
+        neg = d.negative_prompt or ""
+        for term in ("not photorealistic", "not cinematic"):
+            assert term in neg
+
+    def test_style_guardrails_in_negative_prompt_all_presets(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt, STYLE_MODES
+        deck = self._deck()
+        for mode_id in STYLE_MODES:
+            d = build_directed_image_prompt(deck, deck.slides[0], style_mode=mode_id)
+            neg = d.negative_prompt or ""
+            assert "not photorealistic" in neg, f"Missing guardrail for mode {mode_id!r}"
+
+    def test_guardrail_suppressed_when_deck_style_mood_is_cinematic(self):
+        # In deck_style, if mood says "cinematic", the "not cinematic" guardrail must be omitted.
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["mood"] = "cinematic 3D fairy-tale render"
+        deck = DeckSpec(**raw)
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
+        neg = d.negative_prompt or ""
+        assert "not cinematic" not in neg
+        assert "not 3D render" not in neg
+
+    def test_guardrail_suppressed_when_deck_style_mood_is_photorealistic(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["mood"] = "photorealistic fairy-tale illustration"
+        deck = DeckSpec(**raw)
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
+        neg = d.negative_prompt or ""
+        assert "not photorealistic" not in neg
+
+    def test_guardrails_still_present_in_deck_style_with_neutral_mood(self):
+        # When mood does not mention any guardrail keyword, all guardrails remain.
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["mood"] = "warm cozy storybook"
+        deck = DeckSpec(**raw)
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="deck_style")
+        neg = d.negative_prompt or ""
+        for term in ("not photorealistic", "not cinematic", "not 3D render"):
+            assert term in neg, f"Expected guardrail {term!r} for neutral mood"
+
+    def test_fixed_preset_always_keeps_all_guardrails(self):
+        # Fixed presets never request photorealistic/cinematic styles, so guardrails are always kept.
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["mood"] = "cinematic"  # mood is irrelevant for fixed presets
+        deck = DeckSpec(**raw)
+        d = build_directed_image_prompt(deck, deck.slides[0], style_mode="soft_storybook_watercolor")
+        neg = d.negative_prompt or ""
+        assert "not cinematic" in neg
+        assert "not photorealistic" in neg
+
+    # --- Default mode end-to-end via planner ---
+
+    def test_default_mode_prompt_contains_watercolor_preset(self):
+        deck = self._deck()
+        spec = build_slide_art_specs(deck)[0]
+        assert "soft_storybook_watercolor" in spec.image.prompt
+        assert spec.image.style == "soft_storybook_watercolor"
+
+    def test_explicit_style_mode_via_planner(self):
+        deck = self._deck()
+        spec = build_slide_art_specs(deck, style_mode="cute_hand_drawn_cartoon")[0]
+        assert "cute_hand_drawn_cartoon" in spec.image.prompt
+        assert "rounded simplified characters" in spec.image.prompt
+        assert spec.image.style == "cute_hand_drawn_cartoon"
+
+    # --- CLI --style ---
+
+    def test_cli_style_option_accepted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out),
+            "--provider", "fake", "--style", "cute_hand_drawn_cartoon",
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads((out / "art_spec.json").read_text())
+        assert any("cute_hand_drawn_cartoon" in s["image"]["prompt"] for s in data["slides"])
+        assert all(s["image"]["style"] == "cute_hand_drawn_cartoon" for s in data["slides"])
+
+    def test_cli_unknown_style_exits_nonzero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--provider", "fake", "--style", "bad_mode",
+        ])
+        assert result.exit_code != 0
+        assert "bad_mode" in result.output
+
+    def test_cli_dry_run_with_style(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out),
+            "--dry-run", "--style", "paper_cut_collage_storybook",
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads((out / "art_spec.json").read_text())
+        assert any("paper_cut_collage_storybook" in s["image"]["prompt"] for s in data["slides"])
+        assert all(s["image"]["style"] == "paper_cut_collage_storybook" for s in data["slides"])
+        assert not (out / "image_manifest.json").exists()
+
+    def test_cli_dry_run_with_style_and_slides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path, n_slides=4)
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out),
+            "--dry-run", "--style", "deck_style", "--slides", "1,3",
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads((out / "art_spec.json").read_text())
+        assert [s["slide_index"] for s in data["slides"]] == [1, 3]
+        assert all(s["image"]["style"] == "deck_style" for s in data["slides"])
+
+    def test_cli_omitted_style_is_backwards_compatible(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out), "--provider", "fake",
+        ])
+        assert result.exit_code == 0, result.output
+        # Default (soft_storybook_watercolor) should be used
+        data = json.loads((out / "art_spec.json").read_text())
+        assert any("soft_storybook_watercolor" in s["image"]["prompt"] for s in data["slides"])
+        assert all(s["image"]["style"] == "soft_storybook_watercolor" for s in data["slides"])

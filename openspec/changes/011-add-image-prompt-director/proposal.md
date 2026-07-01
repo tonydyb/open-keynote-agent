@@ -31,6 +31,8 @@ The current prompt is good enough for plumbing, but not yet good enough for stor
 - Compile each slide into a scene-first image prompt.
 - Add required-subject and forbidden-subject sections.
 - Add per-slide negative prompts that reduce common model drift.
+- Add controlled children's-book illustration style modes, defaulting to `soft_storybook_watercolor`.
+- Allow preview-time style selection from a small deterministic list, including `deck_style` for using the user's prompt-derived DeckSpec style.
 - Keep the compiler deterministic and local.
 - Add a prompt-only mode so users can review `art_spec.json` without calling an image provider.
 - Preserve existing 010 CLI behavior when new options are not used.
@@ -62,6 +64,7 @@ Plan image prompts without generating images:
 ```bash
 uv run oka generate-images /tmp/snow-white-plan/deck_spec_en.json \
   --slides 1,4,9 \
+  --style soft_storybook_watercolor \
   --dry-run \
   --output /tmp/snow-white-prompts
 ```
@@ -79,6 +82,7 @@ Then generate only the reviewed slides:
 uv run oka generate-images /tmp/snow-white-plan/deck_spec_en.json \
   --provider bedrock \
   --slides 1,4,9 \
+  --style cute_hand_drawn_cartoon \
   --output /tmp/snow-white-preview
 ```
 
@@ -87,6 +91,9 @@ uv run oka generate-images /tmp/snow-white-plan/deck_spec_en.json \
 - `art_spec.json` contains scene-first prompts where the current slide description appears before story context.
 - Prompts include explicit "Required subjects" and "Forbidden subjects" sections.
 - Negative prompts include both generic exclusions and per-slide forbidden subjects.
+- `soft_storybook_watercolor` is used as the default image style mode.
+- Users can choose `soft_storybook_watercolor`, `cute_hand_drawn_cartoon`, `paper_cut_collage_storybook`, or `deck_style` during preview and generation.
+- Fixed preset modes do not silently mix in `DeckSpec.style.mood`; `deck_style` is the explicit option for using DeckSpec / VisualSpec style fields.
 - `--dry-run` writes `art_spec.json` and does not call the provider.
 - Existing `oka generate-images` behavior remains compatible when `--dry-run` and new director options are not used.
 - Unit tests prove no LLM, no real image API, and no Keynote dependency.

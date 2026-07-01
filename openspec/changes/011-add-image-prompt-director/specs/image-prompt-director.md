@@ -67,7 +67,13 @@ The function SHALL preserve user-provided story and scene wording from `DeckSpec
 
 ### Prompt Ordering
 
-The provider-facing `prompt` SHALL start with the current slide's primary scene.
+When a fixed preset style mode is selected, the provider-facing `prompt` SHALL start with a short style anchor section named `Image style, follow strongly`.
+
+The fixed preset style anchor SHALL include the selected style mode ID and preset description.
+
+When `deck_style` is selected, the provider-facing `prompt` SHALL start with the current slide's primary scene.
+
+For every style mode, the provider-facing `prompt` SHALL include the current slide's primary scene before deck-level story context.
 
 The provider-facing `prompt` SHALL include deck-level story context only after the primary scene and required subjects.
 
@@ -126,25 +132,67 @@ if deck.title == "Snow White": ...
 
 The final `negative_prompt` SHALL include `forbidden_subjects`.
 
-### Style Neutrality
+### Style Modes
 
-The director SHALL NOT inject fixed art styles such as:
+The director SHALL support deterministic image style modes.
 
-- watercolor
-- oil painting
-- soft lighting
-- cinematic lighting
-- 3D
-- warm picture book
-- expressive characters
+The initial style mode IDs SHALL be:
 
-The director SHALL use style notes only from:
+- `soft_storybook_watercolor`
+- `cute_hand_drawn_cartoon`
+- `paper_cut_collage_storybook`
+- `deck_style`
+
+When no style mode is explicitly supplied, the director SHALL use `soft_storybook_watercolor`.
+
+The fixed preset modes SHALL be:
+
+- `soft_storybook_watercolor`
+- `cute_hand_drawn_cartoon`
+- `paper_cut_collage_storybook`
+
+The `deck_style` mode SHALL use DeckSpec / VisualSpec style fields as the primary visual style source instead of a fixed preset.
+
+The `soft_storybook_watercolor` mode SHALL describe a gentle hand-painted children's picture-book look with watercolor texture, soft edges, warm colors, simple composition, and non-photorealistic characters.
+
+The `cute_hand_drawn_cartoon` mode SHALL describe a cute hand-drawn cartoon picture-book look with rounded simplified characters, expressive faces, bright friendly colors, and clear child-readable shapes.
+
+The `paper_cut_collage_storybook` mode SHALL describe a paper-cut collage picture-book look with layered paper texture, simple shapes, tactile craft materials, playful depth, and child-friendly composition.
+
+The selected style mode SHALL be included in `DirectedImagePrompt.style_notes` and in the provider-facing `prompt`.
+
+When a fixed preset mode is selected, the provider-facing prompt SHALL use that fixed preset as the primary visual style.
+
+When a fixed preset mode is selected, the director SHALL NOT automatically include `DeckSpec.style.mood`, `DeckSpec.style.typography`, `DeckSpec.style.palette`, or `SlideSpec.visual.decorations` as primary style instructions.
+
+When a fixed preset mode is selected, the director MAY include `DeckSpec.style.audience` as audience context if present.
+
+When `deck_style` is selected, the director SHALL use style notes from:
 
 - `DeckSpec.style.mood`
 - `DeckSpec.style.audience`
 - `DeckSpec.style.typography`
 - `DeckSpec.style.palette`
 - `SlideSpec.visual.decorations`
+
+When `deck_style` is selected, the director SHALL NOT include any fixed preset description.
+
+The director SHALL NOT inject additional fixed art styles outside the selected style mode.
+
+The preview workflow SHOULD present `deck_style` as a separate option named "Use My Prompt Style" or equivalent, not as hidden style text mixed into the default mode.
+
+The director SHALL add style guardrails to reduce common undesired output modes unless the user explicitly requests one of those modes.
+
+Default style guardrails SHOULD include:
+
+- not photorealistic
+- not cinematic
+- not realistic portrait
+- not movie still
+- not 3D render
+- not adult editorial illustration
+
+The style guardrails SHALL be included in the final `negative_prompt`.
 
 ### Planner Integration
 
@@ -153,6 +201,10 @@ The director SHALL use style notes only from:
 `SlideArtSpec.image.prompt` SHALL be populated from `DirectedImagePrompt.prompt`.
 
 `SlideArtSpec.image.negative_prompt` SHALL be populated from `DirectedImagePrompt.negative_prompt`.
+
+`SlideArtSpec.image.style` SHALL be populated with the selected style mode ID, such as `soft_storybook_watercolor`, `cute_hand_drawn_cartoon`, `paper_cut_collage_storybook`, or `deck_style`.
+
+Generated `art_spec.json` SHALL NOT write the legacy neutral value `deck-specified` when a concrete style mode was selected or defaulted.
 
 Existing `SlideArtSpec` and `ImageSpec` schemas SHALL remain backwards compatible.
 
@@ -214,6 +266,28 @@ Existing options SHALL continue to work:
 --force
 ```
 
+The CLI SHALL add:
+
+```text
+--style <style-mode-id>
+```
+
+When `--style` is omitted, the CLI SHALL use `soft_storybook_watercolor`.
+
+When `--style` is supplied, the CLI SHALL validate it against the supported style mode IDs and fail with a clear error for unknown values.
+
+The `--style` option SHALL work in both normal generation and `--dry-run` mode.
+
+Example preview workflow:
+
+```bash
+uv run oka generate-images /tmp/story/deck_spec_en.json \
+  --slides 1,4,9 \
+  --style cute_hand_drawn_cartoon \
+  --dry-run \
+  --output /tmp/story-prompts-cartoon
+```
+
 ### Testing
 
 Unit tests SHALL NOT require a real image API, network access, API keys, Keynote, `osascript`, GUI access, or macOS Automation permissions.
@@ -225,8 +299,17 @@ Unit tests SHALL cover:
 - story context appears after primary scene
 - required subjects appear in prompt
 - forbidden subjects appear in negative prompt
-- style notes come from DeckSpec fields only
-- fixed art styles are not injected
+- default style mode is `soft_storybook_watercolor`
+- supported fixed preset style modes appear in prompt and style notes
+- fixed preset modes do not automatically mix in `DeckSpec.style.mood`
+- `deck_style` mode uses DeckSpec / VisualSpec style fields
+- `deck_style` mode does not include fixed preset descriptions
+- generated `ImageSpec.style` / `art_spec.json` records contain the selected style mode ID
+- fixed preset prompts start with the style anchor and still include primary scene before story context
+- `deck_style` prompts start with primary scene
+- style guardrails appear in negative prompt
+- unknown style mode IDs fail with a clear error
+- no fixed art styles are injected outside the selected style mode
 - story-specific branches are not required for Snow White / Three Little Pigs / Frozen examples
 - `build_slide_art_specs` uses directed prompts
 - CLI `--dry-run` writes `art_spec.json`

@@ -8,7 +8,47 @@ from open_keynote_agent.deck.schema import DeckSpec, SlideSpec
 
 _NO_TEXT_INSTRUCTION = "No text, no captions, no letters, no watermark."
 
-# Words that terminate a noun phrase scan (prepositions, conjunctions, common verbs).
+# ---------------------------------------------------------------------------
+# Style modes
+# ---------------------------------------------------------------------------
+
+# Maps style mode ID → fixed preset description (empty for deck_style).
+STYLE_MODES: dict[str, str] = {
+    "soft_storybook_watercolor": (
+        "gentle hand-painted children's picture-book look, watercolor texture, "
+        "soft edges, warm colors, simple composition, non-photorealistic characters"
+    ),
+    "cute_hand_drawn_cartoon": (
+        "cute hand-drawn cartoon picture-book look, rounded simplified characters, "
+        "expressive faces, bright friendly colors, clear child-readable shapes"
+    ),
+    "paper_cut_collage_storybook": (
+        "paper-cut collage picture-book look, layered paper texture, simple shapes, "
+        "tactile craft materials, playful depth, child-friendly composition"
+    ),
+    "deck_style": "",  # style comes from DeckSpec / VisualSpec fields
+}
+
+DEFAULT_STYLE_MODE = "soft_storybook_watercolor"
+
+_FIXED_PRESET_MODES: frozenset[str] = frozenset(STYLE_MODES) - {"deck_style"}
+
+# Style guardrails — added to negative_prompt for every mode to prevent
+# photorealistic / cinematic drift in children's illustration outputs.
+_STYLE_GUARDRAILS: list[str] = [
+    "not photorealistic",
+    "not cinematic",
+    "not realistic portrait",
+    "not movie still",
+    "not 3D render",
+    "not adult editorial illustration",
+]
+
+# ---------------------------------------------------------------------------
+# Noun-phrase extraction helpers
+# ---------------------------------------------------------------------------
+
+# Words that terminate a noun phrase scan (prepositions, conjunctions, verbs).
 _NP_STOPS = frozenset({
     "a", "an", "the",
     "in", "on", "at", "by", "with", "before", "after", "from", "to",
@@ -26,7 +66,10 @@ _NP_STOPS = frozenset({
     "this", "their", "his", "her", "its", "our",
 })
 
-# Emoji-to-English object word mapping (shared with planner via this module).
+# ---------------------------------------------------------------------------
+# Emoji-to-English object word mapping
+# ---------------------------------------------------------------------------
+
 EMOJI_WORDS: dict[str, str] = {
     "🐷": "pig",
     "🐖": "pig",
@@ -106,14 +149,9 @@ _COMPOSITION_FOR_KIND: dict[str, str] = {
     "content": "medium-wide storybook scene",
 }
 
-
-def _emoji_subject_words(emoji: list[str]) -> list[str]:
-    words: list[str] = []
-    for item in emoji:
-        word = EMOJI_WORDS.get(item.strip())
-        if word and word not in words:
-            words.append(word)
-    return words
+# ---------------------------------------------------------------------------
+# Pydantic model
+# ---------------------------------------------------------------------------
 
 
 class DirectedImagePrompt(BaseModel):
@@ -148,13 +186,22 @@ class DirectedImagePrompt(BaseModel):
         return v
 
 
-def _extract_noun_phrases(text: str) -> list[str]:
-    """Heuristic: extract multi-word noun phrases from a description string.
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
 
-    Strategy: scan for adjective/noun runs that don't cross stop-word boundaries.
-    Conservative — will under-extract rather than invent subjects.
-    """
-    # Lowercase for stop-word check; preserve original case for output.
+
+def _emoji_subject_words(emoji: list[str]) -> list[str]:
+    words: list[str] = []
+    for item in emoji:
+        word = EMOJI_WORDS.get(item.strip())
+        if word and word not in words:
+            words.append(word)
+    return words
+
+
+def _extract_noun_phrases(text: str) -> list[str]:
+    """Heuristic: extract multi-word noun phrases, breaking on stop words."""
     tokens = re.findall(r"[A-Za-z一-鿿]+(?:'[a-z]+)?", text)
     phrases: list[str] = []
     run: list[str] = []
@@ -175,7 +222,7 @@ def _extract_noun_phrases(text: str) -> list[str]:
 
 
 def _build_required_subjects(slide: SlideSpec) -> list[str]:
-    """Conservative extraction of required subjects from DeckSpec data."""
+    """Conservative extraction of required subjects from SlideSpec data."""
     seen: set[str] = set()
     subjects: list[str] = []
 
@@ -185,25 +232,16 @@ def _build_required_subjects(slide: SlideSpec) -> list[str]:
             seen.add(key)
             subjects.append(term.strip())
 
-    # 1. Emoji-derived object words — single-word, high precision.
     for word in _emoji_subject_words(slide.visual.emoji):
         _add(word)
-
-    # 2. Multi-word noun phrases from visual.description — the primary scene source.
     for phrase in _extract_noun_phrases(slide.visual.description):
         _add(phrase)
-
-    # 3. Slide title (if multi-word and not a stop phrase) as a possible subject label.
     title_tokens = slide.title.strip().split()
     if len(title_tokens) >= 2:
         _add(slide.title.strip())
-
-    # 4. Subtitle as additional subject context.
     if slide.subtitle:
         for phrase in _extract_noun_phrases(slide.subtitle):
             _add(phrase)
-
-    # 5. Body bullets — short bullets often name key objects.
     for bullet in (slide.body or []):
         stripped = bullet.strip()
         if stripped:
@@ -216,21 +254,17 @@ def _build_forbidden_subjects(deck: DeckSpec, slide: SlideSpec) -> list[str]:
     """Generic drift exclusions — no story-specific branches."""
     forbidden = list(_GENERIC_FORBIDDEN)
 
-    # Conservative context-based exclusions
     desc_lower = slide.visual.description.lower()
     title_lower = slide.title.lower()
 
-    # If slide explicitly says "alone" / "solitary", forbid crowds
     if any(w in desc_lower for w in ("alone", "solitary", "by herself", "by himself")):
         forbidden.append("crowd of people")
         forbidden.append("multiple duplicate characters")
 
-    # If slide is clearly an indoor formal setting, forbid outdoor picnic drift
     if any(w in desc_lower + title_lower for w in ("royal chamber", "throne room", "ballroom")):
         forbidden.append("outdoor picnic")
         forbidden.append("dining table with food")
 
-    # If slide is clearly exterior / forest / meadow, forbid indoor banquet drift
     if any(w in desc_lower + title_lower for w in ("forest", "meadow", "outdoor", "outside", "field")):
         forbidden.append("indoor banquet")
         forbidden.append("dining hall")
@@ -238,9 +272,19 @@ def _build_forbidden_subjects(deck: DeckSpec, slide: SlideSpec) -> list[str]:
     return forbidden
 
 
-def _build_style_notes(deck: DeckSpec, slide: SlideSpec) -> list[str]:
-    """Style notes derived only from DeckSpec / VisualSpec fields."""
-    notes: list[str] = []
+def _build_style_notes(deck: DeckSpec, slide: SlideSpec, style_mode: str) -> list[str]:
+    """Build Style section notes for the given style mode.
+
+    Fixed preset modes use only their preset description (+ audience).
+    deck_style uses DeckSpec / VisualSpec fields exclusively.
+    """
+    if style_mode in _FIXED_PRESET_MODES:
+        notes: list[str] = [f"{style_mode} — {STYLE_MODES[style_mode]}"]
+        if deck.style.audience:
+            notes.append(f"audience: {deck.style.audience}")
+        return notes
+
+    # deck_style: compose from DeckSpec / VisualSpec fields only.
     parts: list[str] = [deck.style.mood]
     if deck.style.audience:
         parts.append(f"audience: {deck.style.audience}")
@@ -250,14 +294,12 @@ def _build_style_notes(deck: DeckSpec, slide: SlideSpec) -> list[str]:
         parts.append("palette: " + ", ".join(deck.style.palette))
     if slide.visual.decorations:
         parts.append("decorations: " + ", ".join(slide.visual.decorations))
-    if parts:
-        notes.append("; ".join(parts))
-    return notes
+    return ["; ".join(parts)]
 
 
 def _build_primary_scene(slide: SlideSpec) -> str:
     # Lead with visual.description (the concrete scene), not the title.
-    # Title follows as secondary label so it doesn't activate broad story priors.
+    # Title follows as secondary label to avoid activating broad story priors.
     parts: list[str] = [slide.visual.description]
     if slide.subtitle:
         parts.append(f"({slide.subtitle})")
@@ -273,26 +315,25 @@ def _assemble_prompt(
     composition: str | None,
     style_notes: list[str],
     story_context: str | None,
+    style_mode: str,
 ) -> str:
     sections: list[str] = []
 
-    # 1. Primary scene — always first
+    if style_mode in _FIXED_PRESET_MODES and style_notes:
+        sections.append("Image style, follow strongly:\n" + "\n".join(style_notes))
+
     sections.append(f"Primary scene, follow exactly:\n{primary_scene}")
 
-    # 2. Required subjects
     if required_subjects:
         bullet_lines = "\n".join(f"- {s}" for s in required_subjects)
         sections.append(f"Required subjects:\n{bullet_lines}")
 
-    # 3. Composition
     if composition:
         sections.append(f"Composition:\n{composition}")
 
-    # 4. Style — from DeckSpec only
     if style_notes:
         sections.append("Style:\n" + "\n".join(style_notes))
 
-    # 5. Story context — after scene and subjects
     if story_context:
         sections.append(
             f"Story context:\n{story_context}. "
@@ -300,31 +341,64 @@ def _assemble_prompt(
             "do not add unrelated story elements."
         )
 
-    # 6. Hard constraint — always last
     sections.append(_NO_TEXT_INSTRUCTION)
 
     return "\n\n".join(sections)
 
 
+# Per-guardrail signal patterns. A guardrail is suppressed when its signal matches
+# the style text, meaning the user explicitly requested that visual style.
+# Lookbehind (?<!non-) prevents "non-photorealistic" from suppressing "not photorealistic".
+_GUARDRAIL_SIGNALS: dict[str, re.Pattern[str]] = {
+    "not photorealistic": re.compile(r"(?<!non-)\bphotorealistic\b", re.IGNORECASE),
+    "not cinematic": re.compile(r"(?<!non-)\bcinematic\b", re.IGNORECASE),
+    "not realistic portrait": re.compile(r"(?<!non-)\brealistic\b", re.IGNORECASE),
+    "not movie still": re.compile(r"(?<!non-)\bmovie\b", re.IGNORECASE),
+    "not 3D render": re.compile(r"(?<!non-)(?<!\w)\b3[Dd]\b", re.IGNORECASE),
+    "not adult editorial illustration": re.compile(r"(?<!non-)\beditor(?:ial)?\b", re.IGNORECASE),
+}
+
+
 def _assemble_negative_prompt(
     forbidden_subjects: list[str],
     avoid: list[str],
+    style_text: str = "",
 ) -> str | None:
-    all_terms: list[str] = list(forbidden_subjects) + list(avoid)
+    # Order: generic forbidden → style guardrails → user-specified avoid terms.
+    # Drop guardrails whose signal word is positively affirmed in style_text
+    # (e.g. "cinematic 3D fairy-tale render" in deck_style mood suppresses cinematic and 3D).
+    active_guardrails = [
+        g for g in _STYLE_GUARDRAILS
+        if not _GUARDRAIL_SIGNALS[g].search(style_text)
+    ]
+    all_terms = list(forbidden_subjects) + active_guardrails + list(avoid)
     if not all_terms:
         return None
     return ", ".join(all_terms)
 
 
-def build_directed_image_prompt(deck: DeckSpec, slide: SlideSpec) -> DirectedImagePrompt:
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+
+def build_directed_image_prompt(
+    deck: DeckSpec,
+    slide: SlideSpec,
+    *,
+    style_mode: str = DEFAULT_STYLE_MODE,
+) -> DirectedImagePrompt:
     """Return a scene-first, structured image prompt for one slide. Deterministic, no LLM."""
+    if style_mode not in STYLE_MODES:
+        supported = ", ".join(sorted(STYLE_MODES))
+        raise ValueError(f"unknown style mode {style_mode!r}; supported: {supported}")
+
     primary_scene = _build_primary_scene(slide)
     required_subjects = _build_required_subjects(slide)
     forbidden_subjects = _build_forbidden_subjects(deck, slide)
     composition = _COMPOSITION_FOR_KIND.get(slide.kind, "medium-wide storybook scene")
-    style_notes = _build_style_notes(deck, slide)
+    style_notes = _build_style_notes(deck, slide, style_mode)
 
-    # Story context line (deck title + optional subtitle)
     story_context_line = deck.title
     if deck.subtitle:
         story_context_line += f": {deck.subtitle}"
@@ -335,10 +409,12 @@ def build_directed_image_prompt(deck: DeckSpec, slide: SlideSpec) -> DirectedIma
         composition=composition,
         style_notes=style_notes,
         story_context=story_context_line,
+        style_mode=style_mode,
     )
     negative_prompt = _assemble_negative_prompt(
         forbidden_subjects=forbidden_subjects,
         avoid=deck.style.avoid,
+        style_text=" ".join(style_notes),
     )
 
     return DirectedImagePrompt(

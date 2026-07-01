@@ -50,6 +50,8 @@ class ImageSpec(BaseModel):
     seed: int | None = None
 ```
 
+`deck-specified` is a neutral 010 default. Later prompt-director changes may populate `style` with the selected style mode ID in generated `SlideArtSpec`s.
+
 Validation:
 
 - `prompt` must be non-empty.

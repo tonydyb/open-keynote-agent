@@ -84,7 +84,27 @@ Scene description: ...
 
 这样模型容易先被 `Snow White` 这个故事名带跑。
 
-新 prompt 必须 scene-first：
+新 prompt 必须保证当前页画面在故事背景之前。
+
+固定 preset mode 会先加一个风格锚点，帮助图片模型更认真服从风格：
+
+```text
+Image style, follow strongly:
+paper_cut_collage_storybook — paper-cut collage picture-book look, layered paper texture, simple shapes...
+
+Primary scene, follow exactly:
+An evil queen wearing black and purple robes stands before a glowing magic mirror.
+
+Required subjects:
+- one evil queen
+- one glowing magic mirror
+- dark royal chamber
+
+Story context:
+Snow White. Use the story only as background context; do not add unrelated story elements.
+```
+
+`deck_style` mode 不加固定 preset 风格锚点，仍然从 primary scene 开始：
 
 ```text
 Primary scene, follow exactly:
@@ -99,7 +119,7 @@ Story context:
 Snow White. Use the story only as background context; do not add unrelated story elements.
 ```
 
-也就是说，当前页画面优先，故事名靠后。
+也就是说，固定 preset 时是“风格先定调，当前页画面随后，故事名靠后”；`deck_style` 时是“当前页画面优先，故事名靠后”。
 
 ## 6. Required Subjects
 
@@ -152,21 +172,66 @@ if deck.title == "Snow White":
 
 也就是说，不允许 Snow White-only、Three Little Pigs-only、Frozen-only 的硬编码规则。
 
-## 8. 风格中立
+## 8. 风格 Mode
 
-011 仍然不能擅自加固定风格。
+011 现在允许加入受控的儿童绘本插画风格 mode。
 
-不能自动塞入：
+这不是 LLM 设计步骤，而是 deterministic prompt director 的一部分，用来避免图片模型跑向写实照片、电影剧照、成人肖像或 3D 渲染。
 
-- watercolor
-- oil painting
-- soft lighting
-- cinematic lighting
-- 3D
-- warm picture book
-- expressive characters
+第一版支持 4 个 style mode：
 
-除非这些词来自用户 brief，最后进入了 `DeckSpec.style` 或 `VisualSpec`。
+- `soft_storybook_watercolor`
+  - 默认值。
+  - 温柔水彩儿童绘本风。
+  - 关键词方向：hand-painted children's picture-book look, watercolor texture, soft edges, warm colors, simple composition, non-photorealistic characters。
+
+- `cute_hand_drawn_cartoon`
+  - 可爱手绘卡通绘本风。
+  - 关键词方向：cute hand-drawn cartoon picture-book look, rounded simplified characters, expressive faces, bright friendly colors, clear child-readable shapes。
+
+- `paper_cut_collage_storybook`
+  - 纸艺拼贴绘本风。
+  - 关键词方向：paper-cut collage picture-book look, layered paper texture, simple shapes, tactile craft materials, playful depth, child-friendly composition。
+
+- `deck_style`
+  - 使用 DeckSpec / VisualSpec 中的风格字段。
+  - 这是 preview 阶段给用户看的 “Use My Prompt Style / 使用我的描述风格” 选项。
+
+Style section 必须由选中的 style mode 决定。
+
+如果选择三个固定 preset：
+
+- prompt 以该 preset 作为主要视觉风格。
+- 不自动混入 `DeckSpec.style.mood`。
+- 不自动混入 `DeckSpec.style.typography`。
+- 不自动混入 `DeckSpec.style.palette`。
+- 不自动混入 `SlideSpec.visual.decorations`。
+- 可以保留 `DeckSpec.style.audience` 作为受众上下文。
+
+如果选择 `deck_style`：
+
+- 使用 `DeckSpec.style.mood`。
+- 使用 `DeckSpec.style.typography`。
+- 使用 `DeckSpec.style.palette`。
+- 使用 `SlideSpec.visual.decorations`。
+- 不加入任何固定 preset 描述。
+
+生成的 `art_spec.json` 里，`image.style` 必须写入当前选中的 style mode，例如 `soft_storybook_watercolor` 或 `deck_style`，不能继续写旧的中性占位值 `deck-specified`。
+
+这样 preview 阶段会是干净的四选一，而不是把“水彩 + 剪纸 + 用户描述”揉在一起。
+
+director 不应该再额外塞入 selected style mode 之外的固定美术风格。
+
+negative prompt 里要加入默认风格护栏：
+
+- not photorealistic
+- not cinematic
+- not realistic portrait
+- not movie still
+- not 3D render
+- not adult editorial illustration
+
+除非用户明确要求对应模式。
 
 ## 9. Dry Run
 
@@ -208,21 +273,51 @@ uv run oka generate-images deck_spec_en.json \
 uv run oka generate-images deck_spec_en.json \
   --provider bedrock \
   --slides 1,4,9 \
+  --style soft_storybook_watercolor \
   --output /tmp/preview
 ```
 
 确认几页效果 OK 后，再全量生成。
+
+也可以在 preview 阶段试不同风格：
+
+```bash
+uv run oka generate-images deck_spec_en.json \
+  --slides 1,4,9 \
+  --style cute_hand_drawn_cartoon \
+  --dry-run \
+  --output /tmp/prompts-cartoon
+```
+
+使用用户 prompt / DeckSpec 风格：
+
+```bash
+uv run oka generate-images deck_spec_en.json \
+  --slides 1,4,9 \
+  --style deck_style \
+  --dry-run \
+  --output /tmp/prompts-deck-style
+```
 
 ## 11. 测试重点
 
 需要测试：
 
 - `DirectedImagePrompt` 校验。
-- prompt 开头必须是 primary scene。
+- fixed preset prompt 开头必须是 `Image style, follow strongly`。
+- `deck_style` prompt 开头必须是 primary scene。
 - story context 必须在 primary scene 后面。
 - required subjects 出现在 prompt。
 - forbidden subjects 出现在 negative prompt。
-- 不注入固定美术风格。
+- 默认 style mode 是 `soft_storybook_watercolor`。
+- 三个固定 style mode 都能进入 prompt。
+- 固定 preset 不会自动混入 `DeckSpec.style.mood`。
+- `deck_style` 会使用 DeckSpec / VisualSpec 风格字段。
+- `deck_style` 不会加入固定 preset 描述。
+- `art_spec.json` 的 `image.style` 写入 selected style mode。
+- style guardrails 进入 negative prompt。
+- 未知 style mode 会清晰报错。
+- 不注入 selected style mode 之外的固定美术风格。
 - `build_slide_art_specs` 使用 directed prompt。
 - `--dry-run` 写 `art_spec.json`。
 - `--dry-run` 不调用 provider。

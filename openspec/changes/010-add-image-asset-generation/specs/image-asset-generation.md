@@ -48,6 +48,8 @@ The system SHALL validate that:
 
 `ImageSpec.style` SHALL default to a neutral value such as `deck-specified`. It SHALL NOT default to a concrete art style such as watercolor, storybook, oil painting, 3D, cinematic, or soft lighting.
 
+Later prompt-director changes MAY populate `ImageSpec.style` with a selected style mode ID when one is explicitly selected or defaulted by that change. In that case the generated `art_spec.json` SHOULD expose the actual selected style mode rather than the neutral default.
+
 ### SlideArtSpec
 
 The system SHALL define `SlideArtSpec` with at least:

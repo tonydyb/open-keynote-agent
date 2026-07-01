@@ -490,8 +490,21 @@ def generate_images(
     slides: str | None = typer.Option(None, "--slides", help='Slides to generate, e.g. "1,4,9-12" (default: all slides).'),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate all images."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Write art_spec.json only; do not call provider or generate PNG files."),
+    style: str | None = typer.Option(None, "--style", help=(
+        "Style mode for image prompts: soft_storybook_watercolor (default), "
+        "cute_hand_drawn_cartoon, paper_cut_collage_storybook, deck_style."
+    )),
 ) -> None:
     """Generate per-slide illustration PNG assets from a validated DeckSpec."""
+    from open_keynote_agent.images.director import DEFAULT_STYLE_MODE, STYLE_MODES
+
+    # Validate --style before any file I/O.
+    style_mode = style if style is not None else DEFAULT_STYLE_MODE
+    if style_mode not in STYLE_MODES:
+        supported = ", ".join(sorted(STYLE_MODES))
+        console.print(f"[red]Error:[/] Unknown style mode {style_mode!r}. Supported: {supported}")
+        raise typer.Exit(code=1)
+
     if not deck_spec_path.exists() or not deck_spec_path.is_file():
         console.print(f"[red]Error:[/] File not found: {deck_spec_path}")
         raise typer.Exit(code=1)
@@ -534,6 +547,7 @@ def generate_images(
                 output_dir=out_dir,
                 slide_indexes=slide_indexes,
                 dry_run=True,
+                style_mode=style_mode,
             )
         except Exception as exc:
             console.print(f"[red]Error:[/] {exc}")
@@ -560,6 +574,7 @@ def generate_images(
             force=force,
             cache_dir=shared_cache,
             slide_indexes=slide_indexes,
+            style_mode=style_mode,
         )
     except Exception as exc:
         console.print(f"[red]Error:[/] {exc}")

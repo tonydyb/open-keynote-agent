@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 from open_keynote_agent.deck.schema import DeckSpec
+from open_keynote_agent.images.director import DEFAULT_STYLE_MODE
 from open_keynote_agent.images.planner import build_slide_art_specs
 from open_keynote_agent.images.provider import ImageProvider
 from open_keynote_agent.images.schema import ImageAsset, ImageManifest, SlideArtSpec
@@ -84,8 +85,9 @@ def generate_image_assets(
     cache_dir: Path | None = None,
     slide_indexes: set[int] | None = None,
     dry_run: bool = False,
+    style_mode: str = DEFAULT_STYLE_MODE,
 ) -> ImageManifest:
-    art_specs = build_slide_art_specs(deck, slide_indexes=slide_indexes)
+    art_specs = build_slide_art_specs(deck, slide_indexes=slide_indexes, style_mode=style_mode)
 
     # Dry-run: write art_spec.json only, no PNG generation, no manifest.
     if dry_run:

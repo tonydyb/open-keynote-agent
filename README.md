@@ -266,7 +266,7 @@ Options:
 
 ```text
 <output>/
-  art_spec.json           — one SlideArtSpec per slide (scene-first directed prompts)
+  art_spec.json           — one SlideArtSpec per slide (directed prompts)
 ```
 
 Full generation output:
@@ -284,9 +284,12 @@ Full generation output:
 ### Prompt director (change 011)
 
 Each slide's prompt is compiled by `build_directed_image_prompt` in `images/director.py`.
-The prompt format is scene-first to avoid broad story-title priors:
+The prompt format keeps the current slide scene before story context to avoid broad story-title priors. Fixed preset modes also put a short style anchor first so image models follow the selected visual style:
 
 ```text
+Image style, follow strongly:
+<selected fixed style mode and preset description>
+
 Primary scene, follow exactly:
 <slide.visual.description> [Slide: <slide.title>]
 
@@ -298,7 +301,7 @@ Composition:
 <kind-based default>
 
 Style:
-<deck.style.mood>; audience: ...; palette: ...
+<style mode preset or DeckSpec.style fields>
 
 Story context:
 <deck.title>. Use the story only as background context; do not add unrelated story elements.
@@ -306,7 +309,35 @@ Story context:
 No text, no captions, no letters, no watermark.
 ```
 
-The director is deterministic, calls no LLM, and injects no fixed art styles.
+The director is deterministic and calls no LLM. The `--style` option selects a visual mode:
+
+| Style mode | Description |
+|---|---|
+| `soft_storybook_watercolor` | Gentle watercolor children's picture-book look (default) |
+| `cute_hand_drawn_cartoon` | Cute hand-drawn cartoon with expressive characters |
+| `paper_cut_collage_storybook` | Paper-cut collage with layered textures |
+| `deck_style` | Uses `DeckSpec.style.mood / palette / typography` directly |
+
+Fixed preset modes (`soft_storybook_watercolor`, `cute_hand_drawn_cartoon`, `paper_cut_collage_storybook`) inject the preset description as the Style section and do **not** automatically mix in `DeckSpec.style.mood`, palette, or typography. `deck_style` uses DeckSpec fields exclusively and applies no preset.
+
+For fixed preset modes, the preset also appears at the start of the provider prompt as `Image style, follow strongly:`. `deck_style` stays scene-first.
+
+`art_spec.json` also records the selected mode in `image.style`, for example `"style": "soft_storybook_watercolor"`.
+
+Style guardrails (`not photorealistic`, `not cinematic`, `not 3D render`, etc.) are always added to `negative_prompt`. In `deck_style`, guardrails whose keyword appears in the mood string are suppressed — e.g. a mood of `"cinematic 3D fairy-tale render"` removes `not cinematic` and `not 3D render`.
+
+**Recommended workflow:**
+
+```bash
+# Preview prompts for a few slides
+uv run oka generate-images deck_spec_en.json --dry-run --slides 1,4,9
+
+# Try different styles
+uv run oka generate-images deck_spec_en.json --dry-run --slides 1,4,9 --style cute_hand_drawn_cartoon
+
+# Generate with chosen style
+uv run oka generate-images deck_spec_en.json --provider bedrock --style soft_storybook_watercolor
+```
 
 **Caching:** on a second run with `--output <existing-dir>`, unchanged prompts reuse the
 existing PNG files. Changed prompts or `--force` trigger regeneration.
@@ -331,5 +362,5 @@ The next project direction is an interactive Keynote agent:
 5. ✅ Deck spec planner (`oka deck-plan`, `DeckSpec`, `plan_deck_spec`, `render_deck_outline`).
 6. ✅ Storybook renderer (`oka render-storybook`, `render_storybook_deck`, deterministic layout templates).
 7. ✅ Image asset generation (`oka generate-images`, `generate_image_assets`, `FakeImageProvider`, `BedrockImageProvider`).
-8. ✅ Image prompt director (`build_directed_image_prompt`, scene-first prompts, `--dry-run`, `--slides`).
+8. ✅ Image prompt director (`build_directed_image_prompt`, style modes, `--dry-run`, `--slides`).
 8. Expose session events through an API suitable for a future Studio UI.

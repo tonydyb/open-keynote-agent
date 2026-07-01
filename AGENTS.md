@@ -74,23 +74,28 @@ When running `oka session --tools keynote`, macOS may prompt for permission to c
 ### Director module (`images/director.py`)
 - `EMOJI_WORDS` dict — maps emoji to English object words
 - `DirectedImagePrompt` — Pydantic v2 model (`extra="forbid"`): `slide_index`, `slide_title`, `primary_scene`, `required_subjects`, `forbidden_subjects`, `composition`, `style_notes`, `story_context`, `prompt`, `negative_prompt`
-- `build_directed_image_prompt(deck, slide)` → `DirectedImagePrompt` — deterministic, no LLM
-- Prompt order: Primary scene → Required subjects → Composition → Style → Story context → No-text instruction
+- `STYLE_MODES` dict — maps mode ID → preset description; `DEFAULT_STYLE_MODE = "soft_storybook_watercolor"`
+- `build_directed_image_prompt(deck, slide, *, style_mode=DEFAULT_STYLE_MODE)` → `DirectedImagePrompt` — deterministic, no LLM; raises `ValueError` for unknown mode
+- Prompt order for fixed preset modes: Image style anchor → Primary scene → Required subjects → Composition → Style → Story context → No-text instruction
+- Prompt order for `deck_style`: Primary scene → Required subjects → Composition → Style → Story context → No-text instruction
 - `primary_scene` leads with `slide.visual.description`; slide title appended as `[Slide: <title>]` (avoids broad story priors)
 - `story_context` = `"{deck.title}[: {deck.subtitle}]"` — placed after primary scene
 - Required subjects extracted from: emoji words, noun phrases from `visual.description`, slide title/subtitle/body
 - Generic forbidden subjects + `DeckSpec.style.avoid`; conservative slide-specific drift exclusions — no story-title branches
-- Style notes from `deck.style.mood`, `audience`, `typography`, `palette`, `visual.decorations` only — no injected art styles
-- CLI dry-run: `oka generate-images <deck_spec_en.json> --dry-run [--slides N]` — writes `art_spec.json`, no provider call, no PNGs
+- Fixed preset modes (`soft_storybook_watercolor`, `cute_hand_drawn_cartoon`, `paper_cut_collage_storybook`): use preset as Style; do NOT include `mood/typography/palette/decorations`; MAY include `audience`
+- `deck_style` mode: uses `DeckSpec.style.mood/audience/typography/palette` and `visual.decorations`; no preset description
+- `ImageSpec.style` in generated `art_spec.json` stores the selected style mode ID, not the legacy neutral `deck-specified` value
+- Style guardrails always in `negative_prompt` (`not photorealistic`, `not cinematic`, etc.); suppressed per-guardrail in `deck_style` when the mood string positively requests that visual style
+- CLI: `oka generate-images <deck_spec_en.json> --dry-run [--slides N] [--style MODE]` — writes `art_spec.json`, no provider call, no PNGs
 
 ## Architecture (Image Asset Generation — change 010)
 
 ### Image package (`images/`)
 - `images/schema.py` — `ImageSpec`, `SlideArtSpec`, `ImageAsset`, `ImageManifest` (Pydantic v2, `extra="forbid"`)
 - `images/planner.py` — `build_slide_art_specs(deck)` → `list[SlideArtSpec]`; delegates to `build_directed_image_prompt`
-- `images/director.py` — `build_directed_image_prompt(deck, slide)` → `DirectedImagePrompt`; scene-first prompt compiler
+- `images/director.py` — `build_directed_image_prompt(deck, slide, *, style_mode)` → `DirectedImagePrompt`; prompt compiler with fixed-preset style anchors and scene-before-story ordering
 - `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only PNG); `BedrockImageProvider` (Stability AI and Amazon image request formats); `load_image_provider_from_env(name)`
-- `images/generator.py` — `generate_image_assets(deck, provider, *, output_dir, force=False, dry_run=False)` → `ImageManifest`
+- `images/generator.py` — `generate_image_assets(deck, provider, *, output_dir, force=False, dry_run=False, style_mode=DEFAULT_STYLE_MODE)` → `ImageManifest`
 - `SlideArtSpec.asset_filename` is a `@computed_field` — e.g. `slide_03.png`
 - Prompt hash: `sha256(f"{provider_name}\n{canonical_json}".encode("utf-8")).hexdigest()[:16]`, where `canonical_json` is `json.dumps(spec.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":"))`
 - Cache: `cache_dir=None` disables shared cache (library/test default); CLI passes `.runs/image-cache/<provider>` so runs share cache across timestamped dirs; also falls back to matching manifest entry in same `output_dir`; `force=True` bypasses both
@@ -99,7 +104,7 @@ When running `oka session --tools keynote`, macOS may prompt for permission to c
 - The image package MUST NOT import Keynote tools, AppleScript builders, or `OsascriptRunner`
 - `OKA_IMAGE_PROVIDER=fake|bedrock`; `OKA_IMAGE_MODEL` required for bedrock, e.g. `stability.stable-image-core-v1:1`
 - Bedrock image region uses `OKA_IMAGE_AWS_REGION` first, then falls back to `AWS_REGION`; keep this separate from LLM region when needed
-- CLI: `oka generate-images <deck_spec_en.json|deck_spec.json> [--output PATH] [--provider TEXT] [--slides TEXT] [--force] [--dry-run]`; prefer `deck_spec_en.json` for real providers
+- CLI: `oka generate-images <deck_spec_en.json|deck_spec.json> [--output PATH] [--provider TEXT] [--slides TEXT] [--force] [--dry-run] [--style MODE]`; prefer `deck_spec_en.json` for real providers
 
 ## Architecture (Storybook Renderer — change 009)
 
