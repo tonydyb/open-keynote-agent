@@ -1,0 +1,355 @@
+from __future__ import annotations
+
+import re
+
+from pydantic import BaseModel, Field, field_validator
+
+from open_keynote_agent.deck.schema import DeckSpec, SlideSpec
+
+_NO_TEXT_INSTRUCTION = "No text, no captions, no letters, no watermark."
+
+# Words that terminate a noun phrase scan (prepositions, conjunctions, common verbs).
+_NP_STOPS = frozenset({
+    "a", "an", "the",
+    "in", "on", "at", "by", "with", "before", "after", "from", "to",
+    "into", "onto", "upon", "inside", "outside", "beside", "behind",
+    "above", "below", "between", "through", "across", "towards",
+    "and", "or", "but", "nor", "of", "for",
+    "who", "that", "which", "when", "where", "while", "as",
+    "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did",
+    "will", "would", "could", "should", "may",
+    "stands", "walks", "sits", "runs", "looks", "wears", "holds",
+    "raises", "points", "turns", "reaches", "gazes", "steps", "floats",
+    "wearing", "holding", "standing", "sitting", "walking", "lying",
+    "surrounded", "facing", "leaning",
+    "this", "their", "his", "her", "its", "our",
+})
+
+# Emoji-to-English object word mapping (shared with planner via this module).
+EMOJI_WORDS: dict[str, str] = {
+    "🐷": "pig",
+    "🐖": "pig",
+    "🐺": "wolf",
+    "🏠": "house",
+    "🏡": "cozy house",
+    "🧱": "bricks",
+    "🌾": "straw",
+    "🪵": "wood logs",
+    "🌲": "forest trees",
+    "🌳": "tree",
+    "🌱": "grass",
+    "🌻": "sunflower",
+    "🌸": "flower",
+    "🌹": "rose",
+    "🌈": "rainbow",
+    "⭐": "star",
+    "🌟": "glowing star",
+    "✨": "sparkles",
+    "💫": "magical sparkle",
+    "🌙": "moon",
+    "☀️": "sun",
+    "🌅": "sunset",
+    "❄️": "snowflake",
+    "⛄": "snowman",
+    "🏰": "castle",
+    "👑": "crown",
+    "👸": "princess",
+    "🤴": "prince",
+    "🧙": "wizard",
+    "🧚": "fairy",
+    "🧞": "genie",
+    "🪞": "magic mirror",
+    "🍎": "apple",
+    "🐢": "turtle",
+    "🐇": "rabbit",
+    "🦆": "duck",
+    "🦢": "swan",
+    "🐻": "bear",
+    "🦊": "fox",
+    "🐵": "monkey",
+    "🐦": "bird",
+    "🕊️": "dove",
+    "💨": "strong wind",
+    "🌪️": "whirlwind",
+    "⚡": "lightning",
+    "🔥": "fire",
+    "💧": "water",
+    "🎉": "celebration",
+    "💕": "warm love",
+    "❤️": "heart",
+    "💭": "dream bubble",
+}
+
+# Generic forbidden terms (text/UI artefacts).
+_GENERIC_FORBIDDEN = [
+    "text",
+    "caption",
+    "letters",
+    "words",
+    "watermark",
+    "logo",
+    "signature",
+    "document",
+    "poster",
+    "user interface",
+]
+
+# Composition defaults keyed by slide kind.
+_COMPOSITION_FOR_KIND: dict[str, str] = {
+    "cover": "centered character, clean background, room for title overlay",
+    "characters": "grouped character portrait",
+    "chapter": "medium-wide storybook scene",
+    "climax": "dramatic medium-wide storybook scene",
+    "lesson": "warm closing composition with characters",
+    "ending": "warm closing composition, peaceful scene",
+    "content": "medium-wide storybook scene",
+}
+
+
+def _emoji_subject_words(emoji: list[str]) -> list[str]:
+    words: list[str] = []
+    for item in emoji:
+        word = EMOJI_WORDS.get(item.strip())
+        if word and word not in words:
+            words.append(word)
+    return words
+
+
+class DirectedImagePrompt(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    slide_index: int = Field(ge=1)
+    slide_title: str
+    primary_scene: str
+    required_subjects: list[str] = Field(default_factory=list)
+    forbidden_subjects: list[str] = Field(default_factory=list)
+    composition: str | None = None
+    style_notes: list[str] = Field(default_factory=list)
+    story_context: str | None = None
+    prompt: str
+    negative_prompt: str | None = None
+
+    @field_validator("slide_title", "primary_scene", "prompt")
+    @classmethod
+    def nonempty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("field must not be blank")
+        return v
+
+    @field_validator("required_subjects", "forbidden_subjects", "style_notes", mode="before")
+    @classmethod
+    def items_nonempty(cls, v: object) -> object:
+        if not isinstance(v, list):
+            raise ValueError("must be a list")
+        for item in v:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError("list items must be non-empty strings")
+        return v
+
+
+def _extract_noun_phrases(text: str) -> list[str]:
+    """Heuristic: extract multi-word noun phrases from a description string.
+
+    Strategy: scan for adjective/noun runs that don't cross stop-word boundaries.
+    Conservative — will under-extract rather than invent subjects.
+    """
+    # Lowercase for stop-word check; preserve original case for output.
+    tokens = re.findall(r"[A-Za-z一-鿿]+(?:'[a-z]+)?", text)
+    phrases: list[str] = []
+    run: list[str] = []
+    for tok in tokens:
+        if tok.lower() in _NP_STOPS:
+            if len(run) >= 2:
+                phrase = " ".join(run)
+                if phrase.lower() not in {p.lower() for p in phrases}:
+                    phrases.append(phrase)
+            run = []
+        else:
+            run.append(tok)
+    if len(run) >= 2:
+        phrase = " ".join(run)
+        if phrase.lower() not in {p.lower() for p in phrases}:
+            phrases.append(phrase)
+    return phrases
+
+
+def _build_required_subjects(slide: SlideSpec) -> list[str]:
+    """Conservative extraction of required subjects from DeckSpec data."""
+    seen: set[str] = set()
+    subjects: list[str] = []
+
+    def _add(term: str) -> None:
+        key = term.lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            subjects.append(term.strip())
+
+    # 1. Emoji-derived object words — single-word, high precision.
+    for word in _emoji_subject_words(slide.visual.emoji):
+        _add(word)
+
+    # 2. Multi-word noun phrases from visual.description — the primary scene source.
+    for phrase in _extract_noun_phrases(slide.visual.description):
+        _add(phrase)
+
+    # 3. Slide title (if multi-word and not a stop phrase) as a possible subject label.
+    title_tokens = slide.title.strip().split()
+    if len(title_tokens) >= 2:
+        _add(slide.title.strip())
+
+    # 4. Subtitle as additional subject context.
+    if slide.subtitle:
+        for phrase in _extract_noun_phrases(slide.subtitle):
+            _add(phrase)
+
+    # 5. Body bullets — short bullets often name key objects.
+    for bullet in (slide.body or []):
+        stripped = bullet.strip()
+        if stripped:
+            _add(stripped)
+
+    return subjects
+
+
+def _build_forbidden_subjects(deck: DeckSpec, slide: SlideSpec) -> list[str]:
+    """Generic drift exclusions — no story-specific branches."""
+    forbidden = list(_GENERIC_FORBIDDEN)
+
+    # Conservative context-based exclusions
+    desc_lower = slide.visual.description.lower()
+    title_lower = slide.title.lower()
+
+    # If slide explicitly says "alone" / "solitary", forbid crowds
+    if any(w in desc_lower for w in ("alone", "solitary", "by herself", "by himself")):
+        forbidden.append("crowd of people")
+        forbidden.append("multiple duplicate characters")
+
+    # If slide is clearly an indoor formal setting, forbid outdoor picnic drift
+    if any(w in desc_lower + title_lower for w in ("royal chamber", "throne room", "ballroom")):
+        forbidden.append("outdoor picnic")
+        forbidden.append("dining table with food")
+
+    # If slide is clearly exterior / forest / meadow, forbid indoor banquet drift
+    if any(w in desc_lower + title_lower for w in ("forest", "meadow", "outdoor", "outside", "field")):
+        forbidden.append("indoor banquet")
+        forbidden.append("dining hall")
+
+    return forbidden
+
+
+def _build_style_notes(deck: DeckSpec, slide: SlideSpec) -> list[str]:
+    """Style notes derived only from DeckSpec / VisualSpec fields."""
+    notes: list[str] = []
+    parts: list[str] = [deck.style.mood]
+    if deck.style.audience:
+        parts.append(f"audience: {deck.style.audience}")
+    if deck.style.typography:
+        parts.append(f"typography: {deck.style.typography}")
+    if deck.style.palette:
+        parts.append("palette: " + ", ".join(deck.style.palette))
+    if slide.visual.decorations:
+        parts.append("decorations: " + ", ".join(slide.visual.decorations))
+    if parts:
+        notes.append("; ".join(parts))
+    return notes
+
+
+def _build_primary_scene(slide: SlideSpec) -> str:
+    # Lead with visual.description (the concrete scene), not the title.
+    # Title follows as secondary label so it doesn't activate broad story priors.
+    parts: list[str] = [slide.visual.description]
+    if slide.subtitle:
+        parts.append(f"({slide.subtitle})")
+    if slide.body:
+        parts.append("Includes: " + "; ".join(slide.body) + ".")
+    scene_text = " ".join(parts)
+    return f"{scene_text} [Slide: {slide.title}]"
+
+
+def _assemble_prompt(
+    primary_scene: str,
+    required_subjects: list[str],
+    composition: str | None,
+    style_notes: list[str],
+    story_context: str | None,
+) -> str:
+    sections: list[str] = []
+
+    # 1. Primary scene — always first
+    sections.append(f"Primary scene, follow exactly:\n{primary_scene}")
+
+    # 2. Required subjects
+    if required_subjects:
+        bullet_lines = "\n".join(f"- {s}" for s in required_subjects)
+        sections.append(f"Required subjects:\n{bullet_lines}")
+
+    # 3. Composition
+    if composition:
+        sections.append(f"Composition:\n{composition}")
+
+    # 4. Style — from DeckSpec only
+    if style_notes:
+        sections.append("Style:\n" + "\n".join(style_notes))
+
+    # 5. Story context — after scene and subjects
+    if story_context:
+        sections.append(
+            f"Story context:\n{story_context}. "
+            "Use the story only as background context; "
+            "do not add unrelated story elements."
+        )
+
+    # 6. Hard constraint — always last
+    sections.append(_NO_TEXT_INSTRUCTION)
+
+    return "\n\n".join(sections)
+
+
+def _assemble_negative_prompt(
+    forbidden_subjects: list[str],
+    avoid: list[str],
+) -> str | None:
+    all_terms: list[str] = list(forbidden_subjects) + list(avoid)
+    if not all_terms:
+        return None
+    return ", ".join(all_terms)
+
+
+def build_directed_image_prompt(deck: DeckSpec, slide: SlideSpec) -> DirectedImagePrompt:
+    """Return a scene-first, structured image prompt for one slide. Deterministic, no LLM."""
+    primary_scene = _build_primary_scene(slide)
+    required_subjects = _build_required_subjects(slide)
+    forbidden_subjects = _build_forbidden_subjects(deck, slide)
+    composition = _COMPOSITION_FOR_KIND.get(slide.kind, "medium-wide storybook scene")
+    style_notes = _build_style_notes(deck, slide)
+
+    # Story context line (deck title + optional subtitle)
+    story_context_line = deck.title
+    if deck.subtitle:
+        story_context_line += f": {deck.subtitle}"
+
+    prompt = _assemble_prompt(
+        primary_scene=primary_scene,
+        required_subjects=required_subjects,
+        composition=composition,
+        style_notes=style_notes,
+        story_context=story_context_line,
+    )
+    negative_prompt = _assemble_negative_prompt(
+        forbidden_subjects=forbidden_subjects,
+        avoid=deck.style.avoid,
+    )
+
+    return DirectedImagePrompt(
+        slide_index=slide.index,
+        slide_title=slide.title,
+        primary_scene=primary_scene,
+        required_subjects=required_subjects,
+        forbidden_subjects=forbidden_subjects,
+        composition=composition,
+        style_notes=style_notes,
+        story_context=story_context_line,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+    )

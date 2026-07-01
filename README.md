@@ -222,19 +222,31 @@ The command requires macOS Automation permission to control Keynote.
 ## Image Asset Generation
 
 `oka generate-images` converts a `DeckSpec` into per-slide illustration PNG files
-without opening Keynote:
+without opening Keynote.
+
+### Recommended workflow: review prompts first
+
+Use `--dry-run` to write `art_spec.json` with the directed image prompts and inspect them
+before spending image-generation credits:
 
 ```bash
 # Step 1: plan
-oka deck-plan "请为我制作一个关于《三只小猪》的8页童话绘本风Keynote" --slides 8 --output /tmp/pigs-plan
+oka deck-plan "Create an 8-slide Three Little Pigs storybook" --slides 8 --output /tmp/pigs-plan
 
-# Step 2: generate images (fake provider, no API key needed)
-oka generate-images /tmp/pigs-plan/deck_spec_en.json --output /tmp/pigs-art
+# Step 2: review prompts for selected slides (no API call, no PNG)
+oka generate-images /tmp/pigs-plan/deck_spec_en.json \
+  --dry-run --slides 1,4,8 \
+  --output /tmp/pigs-prompts
 
-# Step 2 (Bedrock Stability AI)
+# Step 3: generate images for reviewed slides
 OKA_IMAGE_AWS_REGION=us-west-2 \
 OKA_IMAGE_MODEL=stability.stable-image-core-v1:1 \
-  oka generate-images /tmp/pigs-plan/deck_spec_en.json --provider bedrock --output /tmp/pigs-art
+  oka generate-images /tmp/pigs-plan/deck_spec_en.json \
+  --provider bedrock --slides 1,4,8 \
+  --output /tmp/pigs-art
+
+# Or generate all slides with the fake provider (no API key needed)
+oka generate-images /tmp/pigs-plan/deck_spec_en.json --output /tmp/pigs-art
 ```
 
 Use `deck_spec_en.json` for real image generation when it is available. `deck_spec.json`
@@ -246,9 +258,18 @@ Options:
 |---|---|---|
 | `--output` | `.runs/<timestamp>-images/` | Output directory |
 | `--provider` | from `OKA_IMAGE_PROVIDER` or `fake` | Image provider |
+| `--slides` | all slides | Comma/range selector, e.g. `1,4,9-12` |
+| `--dry-run` | off | Write `art_spec.json` only; no provider call, no PNGs |
 | `--force` | off | Ignore cache and regenerate all images |
 
-The command writes:
+`--dry-run` output:
+
+```text
+<output>/
+  art_spec.json           — one SlideArtSpec per slide (scene-first directed prompts)
+```
+
+Full generation output:
 
 ```text
 <output>/
@@ -259,6 +280,33 @@ The command writes:
     slide_02.png
     ...
 ```
+
+### Prompt director (change 011)
+
+Each slide's prompt is compiled by `build_directed_image_prompt` in `images/director.py`.
+The prompt format is scene-first to avoid broad story-title priors:
+
+```text
+Primary scene, follow exactly:
+<slide.visual.description> [Slide: <slide.title>]
+
+Required subjects:
+- <noun phrase from description>
+- <emoji-derived object word>
+
+Composition:
+<kind-based default>
+
+Style:
+<deck.style.mood>; audience: ...; palette: ...
+
+Story context:
+<deck.title>. Use the story only as background context; do not add unrelated story elements.
+
+No text, no captions, no letters, no watermark.
+```
+
+The director is deterministic, calls no LLM, and injects no fixed art styles.
 
 **Caching:** on a second run with `--output <existing-dir>`, unchanged prompts reuse the
 existing PNG files. Changed prompts or `--force` trigger regeneration.
@@ -283,4 +331,5 @@ The next project direction is an interactive Keynote agent:
 5. ✅ Deck spec planner (`oka deck-plan`, `DeckSpec`, `plan_deck_spec`, `render_deck_outline`).
 6. ✅ Storybook renderer (`oka render-storybook`, `render_storybook_deck`, deterministic layout templates).
 7. ✅ Image asset generation (`oka generate-images`, `generate_image_assets`, `FakeImageProvider`, `BedrockImageProvider`).
+8. ✅ Image prompt director (`build_directed_image_prompt`, scene-first prompts, `--dry-run`, `--slides`).
 8. Expose session events through an API suitable for a future Studio UI.

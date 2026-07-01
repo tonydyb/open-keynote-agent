@@ -58,6 +58,8 @@ uv run oka ask "organize ~/Downloads into PDFs and Images"
 uv run oka session                      # interactive session with demo tools
 uv run oka session --tools demo         # same as default
 uv run oka session --tools keynote      # real Keynote via AppleScript (macOS only)
+uv run oka generate-images <deck_spec_en.json> --dry-run --slides 1,4,9  # review prompts (no images)
+uv run oka generate-images <deck_spec_en.json> --provider bedrock --slides 1,4,9  # generate images
 RUN_KEYNOTE_INTEGRATION=1 uv run python -m pytest -m keynote_integration  # Keynote smoke test
 ```
 
@@ -67,21 +69,37 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 
 When running `oka session --tools keynote`, macOS may prompt for permission to control Keynote via Automation. Grant it when asked.
 
+## Architecture (Image Prompt Director — change 011)
+
+### Director module (`images/director.py`)
+- `EMOJI_WORDS` dict — maps emoji to English object words
+- `DirectedImagePrompt` — Pydantic v2 model (`extra="forbid"`): `slide_index`, `slide_title`, `primary_scene`, `required_subjects`, `forbidden_subjects`, `composition`, `style_notes`, `story_context`, `prompt`, `negative_prompt`
+- `build_directed_image_prompt(deck, slide)` → `DirectedImagePrompt` — deterministic, no LLM
+- Prompt order: Primary scene → Required subjects → Composition → Style → Story context → No-text instruction
+- `primary_scene` leads with `slide.visual.description`; slide title appended as `[Slide: <title>]` (avoids broad story priors)
+- `story_context` = `"{deck.title}[: {deck.subtitle}]"` — placed after primary scene
+- Required subjects extracted from: emoji words, noun phrases from `visual.description`, slide title/subtitle/body
+- Generic forbidden subjects + `DeckSpec.style.avoid`; conservative slide-specific drift exclusions — no story-title branches
+- Style notes from `deck.style.mood`, `audience`, `typography`, `palette`, `visual.decorations` only — no injected art styles
+- CLI dry-run: `oka generate-images <deck_spec_en.json> --dry-run [--slides N]` — writes `art_spec.json`, no provider call, no PNGs
+
 ## Architecture (Image Asset Generation — change 010)
 
 ### Image package (`images/`)
 - `images/schema.py` — `ImageSpec`, `SlideArtSpec`, `ImageAsset`, `ImageManifest` (Pydantic v2, `extra="forbid"`)
-- `images/planner.py` — `build_slide_art_specs(deck)` → `list[SlideArtSpec]`; deterministic, no LLM
+- `images/planner.py` — `build_slide_art_specs(deck)` → `list[SlideArtSpec]`; delegates to `build_directed_image_prompt`
+- `images/director.py` — `build_directed_image_prompt(deck, slide)` → `DirectedImagePrompt`; scene-first prompt compiler
 - `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only PNG); `BedrockImageProvider` (Stability AI and Amazon image request formats); `load_image_provider_from_env(name)`
-- `images/generator.py` — `generate_image_assets(deck, provider, *, output_dir, force=False)` → `ImageManifest`
+- `images/generator.py` — `generate_image_assets(deck, provider, *, output_dir, force=False, dry_run=False)` → `ImageManifest`
 - `SlideArtSpec.asset_filename` is a `@computed_field` — e.g. `slide_03.png`
 - Prompt hash: `sha256(f"{provider_name}\n{canonical_json}".encode("utf-8")).hexdigest()[:16]`, where `canonical_json` is `json.dumps(spec.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":"))`
 - Cache: `cache_dir=None` disables shared cache (library/test default); CLI passes `.runs/image-cache/<provider>` so runs share cache across timestamped dirs; also falls back to matching manifest entry in same `output_dir`; `force=True` bypasses both
+- `dry_run=True`: writes `art_spec.json` only; no provider call, no PNGs, no `image_manifest.json`
 - Asset paths in manifest are relative to `output_dir`; atomic writes via `<file>.tmp` → `Path.replace()`
 - The image package MUST NOT import Keynote tools, AppleScript builders, or `OsascriptRunner`
 - `OKA_IMAGE_PROVIDER=fake|bedrock`; `OKA_IMAGE_MODEL` required for bedrock, e.g. `stability.stable-image-core-v1:1`
 - Bedrock image region uses `OKA_IMAGE_AWS_REGION` first, then falls back to `AWS_REGION`; keep this separate from LLM region when needed
-- CLI: `oka generate-images <deck_spec_en.json|deck_spec.json> [--output PATH] [--provider TEXT] [--force]`; prefer `deck_spec_en.json` for real providers because it is the English image-generation source of truth
+- CLI: `oka generate-images <deck_spec_en.json|deck_spec.json> [--output PATH] [--provider TEXT] [--slides TEXT] [--force] [--dry-run]`; prefer `deck_spec_en.json` for real providers
 
 ## Architecture (Storybook Renderer — change 009)
 

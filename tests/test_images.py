@@ -281,9 +281,12 @@ class TestBuildSlideArtSpecs:
         raw["slides"][0]["visual"]["emoji"] = ["🐷", "🏠"]
         deck = DeckSpec(**raw)
         specs = build_slide_art_specs(deck)
-        assert "Visual objects: pig, house." in specs[0].image.prompt
+        # Emoji-derived words appear as required subjects in the 011 director format.
+        assert "- pig" in specs[0].image.prompt
+        assert "- house" in specs[0].image.prompt
 
     def test_prompt_supports_arbitrary_story_titles(self):
+        # 011 director: deck title appears in "Story context:" section (after primary scene).
         raw = _minimal_deck_dict(n_slides=1)
         raw["title"] = "Snow White"
         raw["subtitle"] = "A fairy tale about kindness"
@@ -294,13 +297,28 @@ class TestBuildSlideArtSpecs:
 
         spec = build_slide_art_specs(deck)[0]
 
-        assert 'Story: "Snow White".' in spec.image.prompt
-        assert 'Subtitle: "A fairy tale about kindness".' in spec.image.prompt
+        # Primary scene must appear before story context
+        primary_scene_pos = spec.image.prompt.find("Primary scene, follow exactly:")
+        story_context_pos = spec.image.prompt.find("Story context:")
+        assert primary_scene_pos != -1
+        assert story_context_pos != -1
+        assert primary_scene_pos < story_context_pos
+
+        # Deck title is in the story context section
+        assert "Snow White" in spec.image.prompt
+        assert "A fairy tale about kindness" in spec.image.prompt
+
+        # Slide content appears in primary scene
         assert "The Magic Mirror" in spec.image.prompt
         assert "Snow White in an enchanted forest" in spec.image.prompt
-        assert "Visual objects: princess, magic mirror, apple." in spec.image.prompt
+
+        # Emoji-derived words appear as required subjects
+        assert "- princess" in spec.image.prompt
+        assert "- magic mirror" in spec.image.prompt
+        assert "- apple" in spec.image.prompt
 
     def test_prompt_supports_non_english_arbitrary_story_titles(self):
+        # 011 director: deck title in "Story context:" section (after primary scene).
         raw = _minimal_deck_dict(n_slides=1)
         raw["title"] = "冰雪奇缘"
         raw["slides"][0]["title"] = "冰雪城堡"
@@ -310,15 +328,27 @@ class TestBuildSlideArtSpecs:
 
         spec = build_slide_art_specs(deck)[0]
 
-        assert 'Story: "冰雪奇缘".' in spec.image.prompt
+        # Deck title in story context after primary scene
+        primary_scene_pos = spec.image.prompt.find("Primary scene, follow exactly:")
+        story_context_pos = spec.image.prompt.find("Story context:")
+        assert primary_scene_pos < story_context_pos
+        assert "冰雪奇缘" in spec.image.prompt
+
+        # Slide content in primary scene
         assert "冰雪城堡" in spec.image.prompt
         assert "女王在冰雪城堡中释放魔法" in spec.image.prompt
-        assert "Visual objects: snowflake, castle, crown." in spec.image.prompt
+
+        # Emoji-derived required subjects
+        assert "- snowflake" in spec.image.prompt
+        assert "- castle" in spec.image.prompt
+        assert "- crown" in spec.image.prompt
 
     def test_prompt_contains_generic_story_match_instruction(self):
+        # 011 director: story context section includes background context instruction.
         deck = _three_pigs_deck()
         spec = build_slide_art_specs(deck)[0]
-        assert "directly matches this story and this slide" in spec.image.prompt
+        assert "background context" in spec.image.prompt
+        assert "do not add unrelated story elements" in spec.image.prompt
 
     def test_prompt_planner_has_no_story_specific_anchor(self):
         import open_keynote_agent.images.planner as planner_mod
@@ -329,12 +359,14 @@ class TestBuildSlideArtSpecs:
         assert "piglet brothers" not in content
 
     def test_negative_prompt_is_generic_and_allows_humans(self):
+        # 011 director: generic text/UI exclusions; no hardcoded human/animal bans.
         deck = _three_pigs_deck()
         spec = build_slide_art_specs(deck)[0]
         assert spec.image.negative_prompt is not None
         assert "watermark" in spec.image.negative_prompt
-        assert "unrelated classroom" in spec.image.negative_prompt
+        assert "document" in spec.image.negative_prompt
         assert "human children" not in spec.image.negative_prompt
+        assert "animals" not in spec.image.negative_prompt
 
     def test_style_avoid_terms_are_in_negative_prompt(self):
         raw = _minimal_deck_dict(n_slides=1)
@@ -945,3 +977,505 @@ class TestGenerateImagesCLI:
             (out / "image_manifest.json").read_text()
         )
         assert all(not a.cached for a in manifest.assets)
+
+
+# ---------------------------------------------------------------------------
+# DirectedImagePrompt model (change 011)
+# ---------------------------------------------------------------------------
+
+class TestDirectedImagePrompt:
+    from open_keynote_agent.images.director import DirectedImagePrompt
+
+    def _valid_kwargs(self) -> dict:
+        return {
+            "slide_index": 1,
+            "slide_title": "Cover",
+            "primary_scene": "Three pigs outside their houses",
+            "prompt": "Primary scene: Three pigs outside their houses\n\nNo text.",
+        }
+
+    def test_valid_minimal(self):
+        from open_keynote_agent.images.director import DirectedImagePrompt
+        d = DirectedImagePrompt(**self._valid_kwargs())
+        assert d.slide_index == 1
+        assert d.slide_title == "Cover"
+        assert d.primary_scene == "Three pigs outside their houses"
+        assert d.required_subjects == []
+        assert d.forbidden_subjects == []
+        assert d.composition is None
+        assert d.style_notes == []
+        assert d.story_context is None
+        assert d.negative_prompt is None
+
+    def test_slide_index_ge_one(self):
+        from open_keynote_agent.images.director import DirectedImagePrompt
+        from pydantic import ValidationError
+        kw = self._valid_kwargs()
+        kw["slide_index"] = 0
+        with pytest.raises(ValidationError):
+            DirectedImagePrompt(**kw)
+
+    def test_blank_slide_title_raises(self):
+        from open_keynote_agent.images.director import DirectedImagePrompt
+        from pydantic import ValidationError
+        kw = self._valid_kwargs()
+        kw["slide_title"] = "   "
+        with pytest.raises(ValidationError):
+            DirectedImagePrompt(**kw)
+
+    def test_blank_primary_scene_raises(self):
+        from open_keynote_agent.images.director import DirectedImagePrompt
+        from pydantic import ValidationError
+        kw = self._valid_kwargs()
+        kw["primary_scene"] = ""
+        with pytest.raises(ValidationError):
+            DirectedImagePrompt(**kw)
+
+    def test_blank_prompt_raises(self):
+        from open_keynote_agent.images.director import DirectedImagePrompt
+        from pydantic import ValidationError
+        kw = self._valid_kwargs()
+        kw["prompt"] = "  "
+        with pytest.raises(ValidationError):
+            DirectedImagePrompt(**kw)
+
+    def test_empty_string_in_required_subjects_raises(self):
+        from open_keynote_agent.images.director import DirectedImagePrompt
+        from pydantic import ValidationError
+        kw = self._valid_kwargs()
+        kw["required_subjects"] = ["pig", ""]
+        with pytest.raises(ValidationError):
+            DirectedImagePrompt(**kw)
+
+    def test_empty_string_in_forbidden_subjects_raises(self):
+        from open_keynote_agent.images.director import DirectedImagePrompt
+        from pydantic import ValidationError
+        kw = self._valid_kwargs()
+        kw["forbidden_subjects"] = ["watermark", ""]
+        with pytest.raises(ValidationError):
+            DirectedImagePrompt(**kw)
+
+    def test_extra_field_forbidden(self):
+        from open_keynote_agent.images.director import DirectedImagePrompt
+        from pydantic import ValidationError
+        kw = self._valid_kwargs()
+        kw["unknown"] = "oops"
+        with pytest.raises(ValidationError):
+            DirectedImagePrompt(**kw)
+
+    def test_optional_fields_accepted(self):
+        from open_keynote_agent.images.director import DirectedImagePrompt
+        d = DirectedImagePrompt(
+            slide_index=2,
+            slide_title="The Wolf",
+            primary_scene="A big bad wolf huffing at a straw house",
+            required_subjects=["wolf", "straw house"],
+            forbidden_subjects=["watermark"],
+            composition="medium-wide storybook scene",
+            style_notes=["warm and cheerful"],
+            story_context="Three Little Pigs",
+            prompt="Primary scene: A big bad wolf.\n\nNo text.",
+            negative_prompt="watermark, text",
+        )
+        assert d.required_subjects == ["wolf", "straw house"]
+        assert d.story_context == "Three Little Pigs"
+        assert d.composition == "medium-wide storybook scene"
+
+
+# ---------------------------------------------------------------------------
+# build_directed_image_prompt (change 011)
+# ---------------------------------------------------------------------------
+
+class TestBuildDirectedImagePrompt:
+    def _snow_white_deck(self) -> DeckSpec:
+        return DeckSpec(**{
+            "title": "Snow White",
+            "subtitle": "A fairy tale about kindness",
+            "style": {"mood": "magical storybook", "audience": "children"},
+            "slides": [{
+                "index": 1,
+                "kind": "chapter",
+                "title": "The Evil Queen",
+                "visual": {
+                    "description": "An evil queen in a dark royal chamber stands before a glowing magic mirror",
+                    "emoji": ["👑", "🪞"],
+                },
+            }],
+        })
+
+    def _three_pigs_deck_with_cover(self) -> DeckSpec:
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["slides"][0]["kind"] = "cover"
+        return DeckSpec(**raw)
+
+    def test_returns_directed_image_prompt(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt, DirectedImagePrompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert isinstance(d, DirectedImagePrompt)
+
+    def test_slide_index_matches(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.slide_index == 1
+
+    def test_slide_title_matches(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.slide_title == "The Evil Queen"
+
+    def test_primary_scene_starts_with_visual_description(self):
+        # P2 fix: primary_scene leads with visual.description, not slide title.
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.primary_scene.startswith("An evil queen in a dark royal chamber")
+
+    def test_primary_scene_contains_slide_title_as_label(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert "The Evil Queen" in d.primary_scene
+
+    def test_primary_scene_contains_visual_description(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert "evil queen" in d.primary_scene.lower()
+        assert "magic mirror" in d.primary_scene.lower()
+
+    def test_prompt_starts_with_primary_scene_section(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.prompt.startswith("Primary scene, follow exactly:")
+
+    def test_story_context_after_primary_scene_in_prompt(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        primary_pos = d.prompt.find("Primary scene, follow exactly:")
+        story_pos = d.prompt.find("Story context:")
+        assert primary_pos != -1
+        assert story_pos != -1
+        assert primary_pos < story_pos
+
+    def test_story_context_field_contains_deck_title(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.story_context is not None
+        assert "Snow White" in d.story_context
+
+    def test_story_context_contains_subtitle_when_present(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.story_context is not None
+        assert "A fairy tale about kindness" in d.story_context
+
+    def test_prompt_does_not_start_with_deck_title(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert not d.prompt.startswith("Snow White")
+
+    def test_required_subjects_from_emoji(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        # 👑 → crown, 🪞 → magic mirror
+        assert "crown" in d.required_subjects
+        assert "magic mirror" in d.required_subjects
+
+    def test_required_subjects_in_prompt(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        if d.required_subjects:
+            assert "Required subjects:" in d.prompt
+            for subj in d.required_subjects:
+                assert f"- {subj}" in d.prompt
+
+    def test_generic_forbidden_subjects_in_negative_prompt(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.negative_prompt is not None
+        for term in ("text", "watermark", "logo", "document", "poster"):
+            assert term in d.negative_prompt
+
+    def test_style_avoid_in_negative_prompt(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["avoid"] = ["photorealistic", "gore"]
+        deck = DeckSpec(**raw)
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.negative_prompt is not None
+        assert "photorealistic" in d.negative_prompt
+        assert "gore" in d.negative_prompt
+
+    def test_no_fixed_art_styles_injected(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        prompt_lower = d.prompt.lower()
+        for term in ("watercolor", "oil painting", "cinematic", "3d render",
+                     "soft lighting", "warm picture book", "expressive characters"):
+            assert term not in prompt_lower, f"Fixed art style injected: {term!r}"
+
+    def test_style_notes_from_deck_style_only(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        # Style section should contain mood and audience from DeckSpec
+        assert any("magical storybook" in note for note in d.style_notes)
+        assert any("children" in note for note in d.style_notes)
+
+    def test_composition_set_for_cover(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._three_pigs_deck_with_cover()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.composition is not None
+        assert "centered" in d.composition.lower()
+
+    def test_composition_set_for_chapter(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.composition is not None
+
+    def test_no_text_instruction_last_in_prompt(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt, _NO_TEXT_INSTRUCTION
+        deck = self._snow_white_deck()
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert d.prompt.endswith(_NO_TEXT_INSTRUCTION)
+
+    def test_deterministic(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        deck = self._snow_white_deck()
+        d1 = build_directed_image_prompt(deck, deck.slides[0])
+        d2 = build_directed_image_prompt(deck, deck.slides[0])
+        assert d1.prompt == d2.prompt
+        assert d1.negative_prompt == d2.negative_prompt
+
+    def test_does_not_use_story_specific_branches(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        # All three should produce valid results without hardcoded title branches
+        for title in ("Snow White", "Three Little Pigs", "Frozen"):
+            raw = _minimal_deck_dict(n_slides=1)
+            raw["title"] = title
+            deck = DeckSpec(**raw)
+            d = build_directed_image_prompt(deck, deck.slides[0])
+            assert d.prompt  # non-empty, no crash
+
+    def test_humans_animals_not_globally_forbidden(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        # Use a neutral slide that won't trigger any slide-specific drift exclusions.
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["slides"][0]["visual"]["description"] = "A happy family in a sunny meadow"
+        deck = DeckSpec(**raw)
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        neg_terms = {t.strip() for t in (d.negative_prompt or "").split(",")}
+        for allowed_term in ("human", "children", "animal", "castle", "forest", "food"):
+            assert allowed_term not in neg_terms, f"Globally forbidden: {allowed_term!r}"
+
+    def test_palette_in_style_notes(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["palette"] = ["#FFE5D9", "#FFD700"]
+        deck = DeckSpec(**raw)
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert any("#FFE5D9" in note for note in d.style_notes)
+
+    def test_typography_in_style_notes_when_present(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["style"]["typography"] = "bold comic lettering"
+        deck = DeckSpec(**raw)
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert any("bold comic lettering" in note for note in d.style_notes)
+
+    def test_body_bullets_in_primary_scene(self):
+        from open_keynote_agent.images.director import build_directed_image_prompt
+        raw = _minimal_deck_dict(n_slides=1)
+        raw["slides"][0]["body"] = ["Straw walls", "Muddy floor"]
+        deck = DeckSpec(**raw)
+        d = build_directed_image_prompt(deck, deck.slides[0])
+        assert "Straw walls" in d.primary_scene
+        assert "Muddy floor" in d.primary_scene
+
+    def test_planner_uses_director_prompt(self):
+        # Verify planner delegates to director — prompt starts with "Primary scene".
+        deck = _three_pigs_deck()
+        specs = build_slide_art_specs(deck)
+        for spec in specs:
+            assert spec.image.prompt.startswith("Primary scene, follow exactly:")
+
+
+# ---------------------------------------------------------------------------
+# Dry-run mode (change 011)
+# ---------------------------------------------------------------------------
+
+class TestDryRunGeneration:
+    def test_dry_run_writes_art_spec_json(self, tmp_path: Path):
+        from open_keynote_agent.images.generator import generate_image_assets
+        deck = _three_pigs_deck()
+        generate_image_assets(
+            deck, FakeImageProvider(), output_dir=tmp_path, dry_run=True
+        )
+        assert (tmp_path / "art_spec.json").exists()
+
+    def test_dry_run_does_not_write_manifest(self, tmp_path: Path):
+        from open_keynote_agent.images.generator import generate_image_assets
+        deck = _three_pigs_deck()
+        generate_image_assets(
+            deck, FakeImageProvider(), output_dir=tmp_path, dry_run=True
+        )
+        assert not (tmp_path / "image_manifest.json").exists()
+
+    def test_dry_run_does_not_generate_pngs(self, tmp_path: Path):
+        from open_keynote_agent.images.generator import generate_image_assets
+        deck = _three_pigs_deck()
+        generate_image_assets(
+            deck, FakeImageProvider(), output_dir=tmp_path, dry_run=True
+        )
+        assets_dir = tmp_path / "assets"
+        if assets_dir.exists():
+            assert list(assets_dir.glob("*.png")) == []
+
+    def test_dry_run_does_not_call_provider(self, tmp_path: Path):
+        from open_keynote_agent.images.generator import generate_image_assets
+        deck = _three_pigs_deck()
+        called = []
+        provider = FakeImageProvider()
+        original = provider.generate
+
+        def tracking_generate(spec, path):
+            called.append(1)
+            return original(spec, path)
+
+        provider.generate = tracking_generate  # type: ignore[method-assign]
+        generate_image_assets(deck, provider, output_dir=tmp_path, dry_run=True)
+        assert called == []
+
+    def test_dry_run_art_spec_json_contains_prompts(self, tmp_path: Path):
+        from open_keynote_agent.images.generator import generate_image_assets
+        deck = _three_pigs_deck()
+        generate_image_assets(deck, FakeImageProvider(), output_dir=tmp_path, dry_run=True)
+        data = json.loads((tmp_path / "art_spec.json").read_text())
+        assert data["deck_title"] == deck.title
+        for entry in data["slides"]:
+            assert "image" in entry
+            assert "prompt" in entry["image"]
+            assert entry["image"]["prompt"].startswith("Primary scene, follow exactly:")
+
+    def test_dry_run_returns_empty_manifest(self, tmp_path: Path):
+        from open_keynote_agent.images.generator import generate_image_assets
+        deck = _three_pigs_deck()
+        manifest = generate_image_assets(
+            deck, FakeImageProvider(), output_dir=tmp_path, dry_run=True
+        )
+        assert manifest.assets == []
+        assert manifest.deck_title == deck.title
+
+    def test_dry_run_with_slide_filter(self, tmp_path: Path):
+        from open_keynote_agent.images.generator import generate_image_assets
+        deck = _three_pigs_deck()
+        generate_image_assets(
+            deck, FakeImageProvider(), output_dir=tmp_path,
+            slide_indexes={1, 4}, dry_run=True,
+        )
+        data = json.loads((tmp_path / "art_spec.json").read_text())
+        assert [s["slide_index"] for s in data["slides"]] == [1, 4]
+
+    def test_dry_run_creates_output_dir_if_absent(self, tmp_path: Path):
+        from open_keynote_agent.images.generator import generate_image_assets
+        out = tmp_path / "new_dir"
+        assert not out.exists()
+        deck = _three_pigs_deck()
+        generate_image_assets(deck, FakeImageProvider(), output_dir=out, dry_run=True)
+        assert out.exists()
+        assert (out / "art_spec.json").exists()
+
+
+class TestDryRunCLI:
+    def test_dry_run_writes_art_spec_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out), "--dry-run",
+        ])
+        assert result.exit_code == 0, result.output
+        assert (out / "art_spec.json").exists()
+
+    def test_dry_run_does_not_write_manifest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        out = tmp_path / "out"
+        cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out), "--dry-run",
+        ])
+        assert not (out / "image_manifest.json").exists()
+
+    def test_dry_run_does_not_generate_pngs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        out = tmp_path / "out"
+        cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out), "--dry-run",
+        ])
+        assets_dir = out / "assets"
+        if assets_dir.exists():
+            assert list(assets_dir.glob("*.png")) == []
+
+    def test_dry_run_prints_art_spec_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out), "--dry-run",
+        ])
+        assert "art_spec.json" in result.output
+
+    def test_dry_run_does_not_load_provider(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        out = tmp_path / "out"
+        called = []
+        monkeypatch.setattr(cli_module, "load_image_provider_from_env", lambda *a: called.append(1) or FakeImageProvider())
+        cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out), "--dry-run",
+        ])
+        assert called == [], "load_image_provider_from_env should not be called in dry-run"
+
+    def test_dry_run_with_slides_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path, n_slides=5)
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "generate-images", str(spec_path), "--output", str(out),
+            "--dry-run", "--slides", "1,3",
+        ])
+        assert result.exit_code == 0, result.output
+        data = json.loads((out / "art_spec.json").read_text())
+        assert [s["slide_index"] for s in data["slides"]] == [1, 3]
+
+    def test_dry_run_invalid_deck_exits_nonzero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        bad = tmp_path / "bad.json"
+        bad.write_text('{"not": "a deck"}', encoding="utf-8")
+        result = cli_runner.invoke(app, [
+            "generate-images", str(bad), "--output", str(tmp_path / "out"), "--dry-run",
+        ])
+        assert result.exit_code != 0
+
+    def test_dry_run_default_output_dir_under_runs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        spec_path = _write_deck_spec(tmp_path)
+        cli_runner.invoke(app, ["generate-images", str(spec_path), "--dry-run"])
+        runs_dirs = list((tmp_path / ".runs").glob("*-dry-run*"))
+        assert len(runs_dirs) >= 1

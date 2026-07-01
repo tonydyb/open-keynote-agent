@@ -58,12 +58,43 @@ uv run oka ask "organize ~/Downloads into PDFs and Images"
 uv run oka session                      # interactive session with demo tools
 uv run oka session --tools demo         # same as default
 uv run oka session --tools keynote      # real Keynote via AppleScript (macOS only)
+uv run oka generate-images <deck_spec_en.json> --dry-run --slides 1,4,9  # review prompts (no images)
+uv run oka generate-images <deck_spec_en.json> --provider bedrock --slides 1,4,9  # generate images
 RUN_KEYNOTE_INTEGRATION=1 uv run python -m pytest -m keynote_integration  # Keynote smoke test
 ```
 
 All tests run without cloud credentials or API keys — the default `OMA_LLM_PROVIDER=fake` is used.
 
 Unit tests do not require Keynote, `osascript`, macOS GUI access, or special permissions. The `keynote_integration` marker gates tests that call real Keynote; they are skipped unless `RUN_KEYNOTE_INTEGRATION=1` is set.
+
+## Architecture (Image Prompt Director — change 011)
+
+### Director module (`images/director.py`)
+- `EMOJI_WORDS` dict — maps emoji to English object words (public; planner re-exports `_NO_TEXT_INSTRUCTION`)
+- `DirectedImagePrompt` — Pydantic v2 model (`extra="forbid"`): `slide_index`, `slide_title`, `primary_scene`, `required_subjects`, `forbidden_subjects`, `composition`, `style_notes`, `story_context`, `prompt`, `negative_prompt`
+- `build_directed_image_prompt(deck, slide)` → `DirectedImagePrompt` — deterministic, no LLM
+- Prompt ordering: Primary scene first → Required subjects → Composition → Style → Story context → No-text instruction
+- `primary_scene` = `"{slide.title}: {slide.visual.description} ..."` (slide title always first)
+- `story_context` = `"{deck.title}[: {deck.subtitle}]"` — placed AFTER primary scene
+- Generic forbidden subjects (text, caption, letters, words, watermark, logo, signature, document, poster, user interface) + `DeckSpec.style.avoid`
+- Conservative slide-specific drift exclusions derived from description keywords — no story-title branches
+- Composition defaults by `slide.kind` (cover → centered; chapter/climax → scene; ending/lesson → closing)
+- Style notes from `deck.style.mood`, `audience`, `typography`, `palette`, `visual.decorations` only — no injected art styles
+
+### Planner (`images/planner.py`) — updated in 011
+- Calls `build_directed_image_prompt(deck, slide)` for each slide
+- `ImageSpec.prompt` ← `directed.prompt`; `ImageSpec.negative_prompt` ← `directed.negative_prompt`
+- `_EMOJI_WORDS` dict removed from planner; `EMOJI_WORDS` lives in `director.py`
+
+### Generator dry-run (`images/generator.py`) — updated in 011
+- `generate_image_assets(..., dry_run=False)` — new `dry_run` parameter
+- `dry_run=True`: builds `SlideArtSpec`s, writes `art_spec.json`, returns empty manifest, does NOT call provider, does NOT write `image_manifest.json`, does NOT create PNGs
+
+### CLI dry-run (`cli.py`) — updated in 011
+- `oka generate-images <deck_spec.json> --dry-run [--slides N] [--output PATH]`
+- In dry-run: validates DeckSpec, parses `--slides`, writes `art_spec.json`, does NOT load real provider
+- Default output dir suffix: `-dry-run` (vs `-images` for full generation)
+- Recommended workflow: `--dry-run --slides 1,4,9` first to review prompts, then real generation
 
 ## Architecture (Image Asset Generation — change 010)
 

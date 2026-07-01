@@ -489,6 +489,7 @@ def generate_images(
     provider: str | None = typer.Option(None, "--provider", help="Image provider: fake or bedrock (default from OKA_IMAGE_PROVIDER or fake)."),
     slides: str | None = typer.Option(None, "--slides", help='Slides to generate, e.g. "1,4,9-12" (default: all slides).'),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate all images."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Write art_spec.json only; do not call provider or generate PNG files."),
 ) -> None:
     """Generate per-slide illustration PNG assets from a validated DeckSpec."""
     if not deck_spec_path.exists() or not deck_spec_path.is_file():
@@ -502,12 +503,6 @@ def generate_images(
         raise typer.Exit(code=1) from exc
 
     try:
-        image_provider = load_image_provider_from_env(provider)
-    except (ValueError, UnsupportedImageProviderError) as exc:
-        console.print(f"[red]Error:[/] {exc}")
-        raise typer.Exit(code=1) from exc
-
-    try:
         slide_indexes = parse_slide_selector(slides) if slides is not None else None
     except ValueError as exc:
         console.print(f"[red]Error:[/] {exc}")
@@ -515,7 +510,8 @@ def generate_images(
 
     default_dir_created: Path | None = None
     if output is None:
-        base = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-images"
+        suffix_tag = "-dry-run" if dry_run else "-images"
+        base = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + suffix_tag
         candidate = Path(".runs") / base
         suffix = 0
         while candidate.exists():
@@ -527,6 +523,33 @@ def generate_images(
     else:
         out_dir = output
         out_dir.mkdir(parents=True, exist_ok=True)
+
+    if dry_run:
+        from open_keynote_agent.images.provider import FakeImageProvider
+        try:
+            from open_keynote_agent.images.generator import generate_image_assets as _gen
+            _gen(
+                deck,
+                FakeImageProvider(),
+                output_dir=out_dir,
+                slide_indexes=slide_indexes,
+                dry_run=True,
+            )
+        except Exception as exc:
+            console.print(f"[red]Error:[/] {exc}")
+            if default_dir_created is not None and default_dir_created.exists():
+                import shutil
+                shutil.rmtree(default_dir_created, ignore_errors=True)
+            raise typer.Exit(code=1) from exc
+        console.print("[bold green]Dry-run:[/] art_spec.json written (no images generated)")
+        console.print(f"[dim]art_spec.json: {out_dir / 'art_spec.json'}[/]")
+        return
+
+    try:
+        image_provider = load_image_provider_from_env(provider)
+    except (ValueError, UnsupportedImageProviderError) as exc:
+        console.print(f"[red]Error:[/] {exc}")
+        raise typer.Exit(code=1) from exc
 
     try:
         shared_cache = Path(".runs") / "image-cache" / image_provider.name

@@ -83,8 +83,27 @@ def generate_image_assets(
     force: bool = False,
     cache_dir: Path | None = None,
     slide_indexes: set[int] | None = None,
+    dry_run: bool = False,
 ) -> ImageManifest:
     art_specs = build_slide_art_specs(deck, slide_indexes=slide_indexes)
+
+    # Dry-run: write art_spec.json only, no PNG generation, no manifest.
+    if dry_run:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        art_spec_data = {
+            "deck_title": deck.title,
+            "slides": [s.model_dump() for s in art_specs],
+        }
+        _write_atomically(
+            output_dir / "art_spec.json",
+            json.dumps(art_spec_data, ensure_ascii=False, indent=2),
+        )
+        return ImageManifest(
+            deck_title=deck.title,
+            provider=provider.name,
+            assets_dir=str(Path("assets")),
+            assets=[],
+        )
 
     assets_dir = output_dir / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
