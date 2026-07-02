@@ -100,6 +100,71 @@ Natural-language requests default to dry-run. File moves only happen when apply 
 - Tests use `FakeLLMClient` and do not require cloud credentials, API keys, or network access.
 - Each run writes audit artifacts under `.runs/<run-id>/`.
 
+## Full Storybook Keynote Workflow
+
+This is the end-to-end flow for creating a children's storybook Keynote with AI-generated illustrations.
+
+```bash
+# 0. Install all optional providers and dev dependencies
+uv sync --all-extras
+
+# 1. Create a bilingual DeckSpec from a natural-language brief
+#    deck_spec.json is localized reader-visible text.
+#    deck_spec_en.json is the English source for image prompts.
+OMA_LLM_PROVIDER=openai \
+OPENAI_API_KEY="$OPENAI_API_KEY" \
+OPENAI_MODEL=gpt-4o \
+uv run oka deck-plan \
+  "请为我制作一本关于《花木兰》的儿童绘本 Keynote，适合 6-12 岁儿童。" \
+  --slides 8 \
+  --theme Parchment \
+  --output /tmp/mulan-plan
+
+# 2. Review image prompts before spending image-generation credits
+uv run oka generate-images /tmp/mulan-plan/deck_spec_en.json \
+  --dry-run \
+  --slides 1,4,8 \
+  --style soft_storybook_watercolor \
+  --output /tmp/mulan-prompts
+
+# 3A. Generate illustrations with OpenAI
+#     Parchment exports as 4:3 in many Keynote installs, so 1024x768 fits that deck shape.
+OKA_IMAGE_SIZE=1024x768 \
+OPENAI_API_KEY="$OPENAI_API_KEY" \
+uv run oka generate-images /tmp/mulan-plan/deck_spec_en.json \
+  --provider openai \
+  --style soft_storybook_watercolor \
+  --output /tmp/mulan-art
+
+# 3B. Or generate illustrations with Gemini
+GEMINI_API_KEY="$GEMINI_API_KEY" \
+GEMINI_IMAGE_MODEL=gemini-3.1-flash-image \
+uv run oka generate-images /tmp/mulan-plan/deck_spec_en.json \
+  --provider gemini \
+  --style soft_storybook_watercolor \
+  --output /tmp/mulan-art
+
+# 3C. Or generate illustrations with Bedrock
+AWS_PROFILE=default \
+OKA_IMAGE_AWS_REGION=us-west-2 \
+OKA_IMAGE_MODEL=stability.stable-image-core-v1:1 \
+uv run oka generate-images /tmp/mulan-plan/deck_spec_en.json \
+  --provider bedrock \
+  --style soft_storybook_watercolor \
+  --output /tmp/mulan-art
+
+# 4. Render the localized story text plus generated images into Keynote and PDF
+#    This opens Keynote and may trigger a macOS Automation permission prompt.
+uv run oka render-storybook /tmp/mulan-plan/deck_spec.json \
+  --images /tmp/mulan-art/image_manifest.json \
+  --output /tmp/mulan-rendered
+
+# 5. Open the output folder
+open /tmp/mulan-rendered
+```
+
+For 4:3 Keynote themes such as Parchment, prefer `OKA_IMAGE_SIZE=1024x768` for OpenAI image generation. For 16:9 decks, use a 16:9 size such as `1536x864` if your provider supports it.
+
 ## Keynote Adapter
 
 `oka session` supports two tool sets:
