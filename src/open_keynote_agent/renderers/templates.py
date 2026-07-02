@@ -393,6 +393,40 @@ def image_call_for_slide(slide: SlideSpec, image_path: Path) -> ProposedToolCall
     )
 
 
+def calls_for_slide_image_overlay(slide: SlideSpec, image_path: Path) -> list[ProposedToolCall]:
+    """Return text overlay calls for an image-backed slide using 013 overlay planning.
+
+    Analyses candidate regions in the image to choose the best text position
+    and font color. Falls back to fixed 012 overlay frame if analysis fails.
+    """
+    from open_keynote_agent.renderers.overlays import build_overlay_plan  # noqa: PLC0415
+
+    plan = build_overlay_plan(slide, image_path)
+    idx = slide.index
+
+    if not plan.text:
+        return []
+
+    r = plan.region
+    s = plan.style
+
+    return [ProposedToolCall(
+        tool="keynote.add_text_box",
+        args={
+            "slide": idx,
+            "text": plan.text,
+            "x": r.x,
+            "y": r.y,
+            "width": r.width,
+            "height": r.height,
+            "font_size": s.font_size,
+            "font_color": s.text_color,  # hex string, e.g. "#FFFFFF"
+            "object_id": _oid(idx, "body"),
+        },
+        description=f"Add overlay text on slide {idx} ({plan.region.name}, color={s.text_color})",
+    )]
+
+
 def calls_for_slide_text_only(slide: SlideSpec) -> list[ProposedToolCall]:
     """Return only text-related template calls for a slide (no emoji, no decorative shapes).
 

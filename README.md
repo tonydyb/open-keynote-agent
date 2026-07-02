@@ -244,7 +244,15 @@ oka render-storybook /tmp/pigs-plan/deck_spec.json \
   --output /tmp/pigs-keynote
 ```
 
-The renderer inserts each available image as a full-bleed 1280x720 illustration. For image-backed slides after the cover, it uses a blank layout, skips the default presentation title, and renders body text as an overlay above the image. Slides not covered by the manifest use the existing emoji/shape fallback visual. Images listed in the manifest but whose files are missing fail before Keynote is opened.
+The renderer inserts each available image as a full-bleed 1280x720 illustration. For image-backed slides after the cover, it uses a blank layout, skips the default presentation title, and renders body text as an overlay above the image using **image-aware text color and placement** (change 013):
+
+- Pillow analyses each candidate region (bottom, top, left, right, center) for mean luminance and busyness.
+- Dark backgrounds get white text (`#FFFFFF`); bright backgrounds get dark-brown text (`#2C1810`).
+- Busy or ambiguous regions set `use_backing=True` in diagnostics (backing panel rendering is deferred to a future spec).
+- The lowest-scoring region is selected based on busyness and slide-kind preferences.
+- If Pillow is unavailable or the image cannot be read, the renderer falls back to the fixed 012 bottom-band overlay.
+
+Slides not covered by the manifest use the existing emoji/shape fallback visual. Images listed in the manifest but whose files are missing fail before Keynote is opened.
 
 `render_result.json` includes `image_count` and `missing_image_slides`. `tool_results.jsonl` includes `keynote.add_image` entries.
 
@@ -393,4 +401,5 @@ The next project direction is an interactive Keynote agent:
 7. ✅ Image asset generation (`oka generate-images`, `generate_image_assets`, `FakeImageProvider`, `BedrockImageProvider`).
 8. ✅ Image prompt director (`build_directed_image_prompt`, style modes, `--dry-run`, `--slides`).
 9. ✅ Image assets to storybook renderer (`keynote.add_image`, `load_image_assets`, `render-storybook --images`, emoji/shape fallback for missing slides).
-8. Expose session events through an API suitable for a future Studio UI.
+10. ✅ Readable storybook text overlays (`renderers/overlays.py`, `build_overlay_plan`, image-aware color and region selection via Pillow).
+11. Expose session events through an API suitable for a future Studio UI.

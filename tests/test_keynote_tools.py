@@ -847,15 +847,14 @@ class TestAddTextBoxBuilder:
         assert "every paragraph of object text" in s
         assert "64" in s
 
-    def test_font_color_applied_to_paragraph(self):
+    def test_font_color_applied_to_object_text(self):
         s = scripts.add_text_box(1, "o", "x", 0, 0, 100, 50, font_color=(65535, 0, 0))
-        assert "text color" in s
-        assert "every paragraph of object text" in s
-        assert "65535" in s
+        assert "set color of object text of textItem to {65535, 0, 0}" in s
+        assert "text color" not in s
 
     def test_no_font_color_when_none(self):
         s = scripts.add_text_box(1, "o", "x", 0, 0, 100, 50)
-        assert "text color" not in s
+        assert "set color of object text" not in s
 
     def test_escapes_text(self):
         s = scripts.add_text_box(1, "o", 'He said "hi"', 0, 0, 100, 50)
@@ -1016,8 +1015,8 @@ class TestAddTextBoxTool:
              "font_color": "#FF0000"},
             fake, context=ctx,
         )
-        assert "text color" in fake.calls[0]
-        assert "every paragraph of object text" in fake.calls[0]
+        assert "set color of object text of textItem to {65535, 0, 0}" in fake.calls[0]
+        assert "text color" not in fake.calls[0]
 
     def test_script_does_not_use_object_name(self):
         fake = FakeScriptRunner()

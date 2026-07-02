@@ -26,7 +26,8 @@ dependencies = [
 bedrock = ["boto3>=1.30.0"]
 openai = ["openai>=0.27.0"]
 gemini = ["google-genai>=0.1.0"]
-dev = ["pytest>=9.0.0", "ruff>=0.15.0"]
+dev = ["pytest>=9.0.0", "ruff>=0.15.0", "Pillow>=10.0.0"]
+images = ["Pillow>=10.0.0"]
 
 [project.scripts]
 oka = "open_keynote_agent.cli:app"

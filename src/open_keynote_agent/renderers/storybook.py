@@ -12,7 +12,7 @@ from open_keynote_agent.deck.schema import DeckSpec
 from open_keynote_agent.renderers.templates import (
     LAYOUT_FOR_KIND,
     calls_for_slide,
-    calls_for_slide_text_only,
+    calls_for_slide_image_overlay,
     image_call_for_slide,
 )
 
@@ -130,7 +130,7 @@ def render_storybook_deck(
                 registry, state, tool_results,
             )
             image_count += 1
-            object_calls = calls_for_slide_text_only(slide_spec)
+            object_calls = calls_for_slide_image_overlay(slide_spec, image_path)
         else:
             if image_assets is not None:
                 missing_image_slides.append(slide_spec.index)

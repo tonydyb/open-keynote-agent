@@ -1004,3 +1004,191 @@ class TestRenderStorybookCLIImages:
         lines = (out / "tool_results.jsonl").read_text().splitlines()
         tools = [json.loads(line)["tool"] for line in lines]
         assert "keynote.add_image" in tools
+
+
+# ---------------------------------------------------------------------------
+# 013 Overlay planning tests
+# ---------------------------------------------------------------------------
+
+def _make_solid_png(directory: Path, filename: str, rgb: tuple[int, int, int], size: tuple[int, int] = (1280, 720)) -> Path:
+    """Write a solid-colour PNG using Pillow."""
+    from PIL import Image as _PILImage
+    img = _PILImage.new("RGB", size, color=rgb)
+    p = directory / filename
+    img.save(p)
+    return p
+
+
+class TestOverlayAnalysis:
+    """Unit tests for renderers/overlays.py — no Keynote required."""
+
+    def test_bright_region_chooses_dark_text(self, tmp_path: Path):
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        png = _make_solid_png(tmp_path, "bright.png", (240, 240, 240))
+        slide = _slide(2, kind="chapter", title="Test", body=["hello"])
+        plan = build_overlay_plan(slide, png)
+        assert plan.style.text_color == "#2C1810"
+
+    def test_dark_region_chooses_white_text(self, tmp_path: Path):
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        png = _make_solid_png(tmp_path, "dark.png", (20, 20, 20))
+        slide = _slide(2, kind="chapter", title="Test", body=["hello"])
+        plan = build_overlay_plan(slide, png)
+        assert plan.style.text_color == "#FFFFFF"
+
+    def test_solid_image_does_not_recommend_backing(self, tmp_path: Path):
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        # Solid images have stddev=0, well below the busy threshold
+        png = _make_solid_png(tmp_path, "solid.png", (30, 30, 30))
+        slide = _slide(2, kind="chapter", title="Test", body=["hello"])
+        plan = build_overlay_plan(slide, png)
+        assert plan.style.use_backing is False
+
+    def test_busy_image_recommends_backing(self, tmp_path: Path):
+        """Checkerboard image has high stddev, should trigger use_backing=True."""
+        from PIL import Image as _PILImage
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        # Checkerboard of black and white at 4px grid — very high stddev
+        img = _PILImage.new("RGB", (1280, 720))
+        pixels = []
+        for y in range(720):
+            for x in range(1280):
+                pixels.append((255, 255, 255) if (x // 4 + y // 4) % 2 == 0 else (0, 0, 0))
+        img.putdata(pixels)
+        png = tmp_path / "busy.png"
+        img.save(png)
+        slide = _slide(2, kind="chapter", title="Test", body=["hello"])
+        plan = build_overlay_plan(slide, png)
+        assert plan.style.use_backing is True
+
+    def test_less_busy_region_selected(self, tmp_path: Path):
+        """Image with a dark quiet bottom band vs noisy top should pick bottom_band."""
+        from PIL import Image as _PILImage
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        img = _PILImage.new("RGB", (1280, 720), color=(30, 30, 30))
+        # Flood the top 200 rows with a noisy checkerboard
+        for y in range(200):
+            for x in range(1280):
+                color = (255, 255, 255) if (x // 4 + y // 4) % 2 == 0 else (0, 0, 0)
+                img.putpixel((x, y), color)
+        png = tmp_path / "noisy_top.png"
+        img.save(png)
+        slide = _slide(2, kind="chapter", title="Test", body=["hello"])
+        plan = build_overlay_plan(slide, png)
+        assert plan.region.name == "bottom_band"
+        assert plan.diagnostics.get("fallback") is False
+
+    def test_analysis_failure_returns_fallback(self, tmp_path: Path):
+        from open_keynote_agent.renderers.overlays import build_overlay_plan, _FALLBACK_X, _FALLBACK_Y
+        png = tmp_path / "nonexistent.png"   # does not exist
+        slide = _slide(2, kind="chapter", title="Test", body=["hello"])
+        plan = build_overlay_plan(slide, png)
+        assert plan.diagnostics.get("fallback") is True
+        assert plan.region.x == _FALLBACK_X
+        assert plan.region.y == _FALLBACK_Y
+
+    def test_cover_overlay_is_subtitle(self, tmp_path: Path):
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        png = _make_solid_png(tmp_path, "cover.png", (20, 20, 20))
+        slide = _slide(1, kind="cover", title="Title", subtitle="A great story")
+        plan = build_overlay_plan(slide, png)
+        assert plan.text == "A great story"
+
+    def test_cover_no_subtitle_yields_empty_text(self, tmp_path: Path):
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        png = _make_solid_png(tmp_path, "cover_nosub.png", (20, 20, 20))
+        slide = _slide(1, kind="cover", title="Title")
+        plan = build_overlay_plan(slide, png)
+        assert plan.text == ""
+
+    def test_body_text_used_when_present(self, tmp_path: Path):
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        png = _make_solid_png(tmp_path, "ch.png", (20, 20, 20))
+        slide = _slide(2, kind="chapter", title="Title", subtitle="Sub", body=["Line one", "Line two"])
+        plan = build_overlay_plan(slide, png)
+        assert "Line one" in plan.text
+        assert "Line two" in plan.text
+
+    def test_subtitle_fallback_when_body_empty(self, tmp_path: Path):
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        png = _make_solid_png(tmp_path, "sub.png", (20, 20, 20))
+        slide = _slide(2, kind="chapter", title="Title", subtitle="The subtitle")
+        plan = build_overlay_plan(slide, png)
+        assert plan.text == "The subtitle"
+
+    def test_title_fallback_when_body_and_subtitle_empty(self, tmp_path: Path):
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        png = _make_solid_png(tmp_path, "title_fb.png", (20, 20, 20))
+        slide = _slide(2, kind="chapter", title="ChapterTitle")
+        plan = build_overlay_plan(slide, png)
+        assert plan.text == "ChapterTitle"
+
+    def test_diagnostics_include_luminance_and_region(self, tmp_path: Path):
+        from open_keynote_agent.renderers.overlays import build_overlay_plan
+        png = _make_solid_png(tmp_path, "diag.png", (100, 100, 100))
+        slide = _slide(2, kind="chapter", title="T", body=["b"])
+        plan = build_overlay_plan(slide, png)
+        assert "mean_luminance" in plan.diagnostics
+        assert "selected_region" in plan.diagnostics
+        assert plan.diagnostics["fallback"] is False
+
+
+class TestRendererImageOverlay:
+    """Renderer integration tests for 013 image-aware overlay."""
+
+    def _render_with_real_png(
+        self,
+        tmp_path: Path,
+        rgb: tuple[int, int, int],
+        slides_with_images: dict[int, str],
+        deck: DeckSpec | None = None,
+    ) -> tuple[RenderResult, FakeScriptRunner]:
+        from PIL import Image as _PILImage
+        fake = _make_fake_runner()
+        registry, state = _make_registry_and_state(fake)
+        deck = deck or _three_pigs_deck()
+        assets: dict[int, Path] = {}
+        for idx, fname in slides_with_images.items():
+            img = _PILImage.new("RGB", (1280, 720), color=rgb)
+            p = tmp_path / fname
+            img.save(p)
+            assets[idx] = p
+        result = render_storybook_deck(
+            deck, registry, state,
+            output_dir=tmp_path, export_pdf=False,
+            image_assets=assets,
+        )
+        return result, fake
+
+    def test_image_insertion_precedes_overlay_text(self, tmp_path: Path):
+        _, fake = self._render_with_real_png(tmp_path, (20, 20, 20), {2: "s2.png"})
+        image_positions = [i for i, c in enumerate(fake.calls) if "make new image" in c]
+        text_positions  = [i for i, c in enumerate(fake.calls) if "make new text item" in c]
+        assert image_positions, "expected at least one add_image call"
+        assert text_positions,  "expected at least one add_text_box call"
+        assert image_positions[-1] < text_positions[-1]
+
+    def test_font_color_passed_to_text_box_dark_image(self, tmp_path: Path):
+        # Dark image → white text (#FFFFFF). Keynote 16-bit: {65535, 65535, 65535}.
+        _, fake = self._render_with_real_png(tmp_path, (10, 10, 10), {2: "s2.png"})
+        text_color_calls = [c for c in fake.calls if "set color of object text" in c]
+        assert any("65535" in c for c in text_color_calls), (
+            "expected white font color (65535) for dark image"
+        )
+
+    def test_font_color_passed_to_text_box_bright_image(self, tmp_path: Path):
+        # Bright image → dark text (#2C1810). Keynote 16-bit: #2C = 44 → 44*65535/255 = 11308.
+        _, fake = self._render_with_real_png(tmp_path, (240, 240, 240), {2: "s2.png"})
+        text_color_calls = [c for c in fake.calls if "set color of object text" in c]
+        assert any("11308" in c for c in text_color_calls), (
+            "expected dark brown font color (11308) for bright image"
+        )
+
+    def test_no_image_fallback_unchanged(self, tmp_path: Path):
+        result = _render_three_pigs(tmp_path)
+        assert result.image_count == 0
+        # Should still have emoji/text calls
+        fake2 = _make_fake_runner()
+        _render_three_pigs(tmp_path / "b", fake2)
+        text_calls = [c for c in fake2.calls if "make new text item" in c]
+        assert len(text_calls) >= 1

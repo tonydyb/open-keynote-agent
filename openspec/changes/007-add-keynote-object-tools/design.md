@@ -202,7 +202,7 @@ tell application "Keynote"
         set size of every paragraph of object text of textItem to <font_size>
       end if
       if <font_color provided> then
-        set text color of every paragraph of object text of textItem to {<r>, <g>, <b>}
+        set color of object text of textItem to {<r>, <g>, <b>}
       end if
       return count of text items
     end tell
@@ -210,7 +210,7 @@ tell application "Keynote"
 end tell
 ```
 
-This text-color form is required; builders must not attempt to set `text color` directly on the text item object.
+This rich-text color form is required; builders must not attempt to set `text color` directly on the text item object or paragraph range.
 
 Move/resize builders must target the stored AppleScript class/index on a specific slide. Required lookup pattern:
 

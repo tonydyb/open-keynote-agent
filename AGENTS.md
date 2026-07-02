@@ -34,7 +34,8 @@ Next changes should build toward an interactive Keynote agent:
 
 ```bash
 uv sync --all-extras                  # all providers + dev tools (recommended)
-uv sync --extra dev              # core + pytest + ruff only
+uv sync --extra dev              # core + pytest + ruff + Pillow (Pillow is now in dev)
+uv sync --extra dev --extra images    # same as above (images extra also brings Pillow)
 uv sync --extra dev --extra bedrock   # add AWS Bedrock
 uv sync --extra dev --extra openai    # add OpenAI
 uv sync --extra dev --extra gemini    # add Gemini
@@ -69,6 +70,23 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 
 When running `oka session --tools keynote`, macOS may prompt for permission to control Keynote via Automation. Grant it when asked.
 
+## Architecture (Readable Storybook Text Overlays — change 013)
+
+### Overlay planner (`renderers/overlays.py`)
+- `build_overlay_plan(slide, image_path)` → `OverlayPlan` — deterministic, no LLM; falls back to fixed 012 region on Pillow error or unreadable image
+- Candidate regions (1280×720): `bottom_band`, `top_band`, `left_panel`, `right_panel`, `center_caption`
+- Luminance: BT.709 `Y = 0.2126R + 0.7152G + 0.0722B`; `<128 → #FFFFFF`, `≥128 → #2C1810`
+- Busyness: luminance stddev; `>45` or ambiguous luminance → `use_backing=True`
+- Slide-kind preferences steer region scoring; lower score wins
+- `OverlayPlan.diagnostics` records `mean_luminance`, `stddev_luminance`, `selected_region`, `text_color`, `use_backing`, `fallback`
+
+### Templates (`renderers/templates.py`) — updated in 013
+- `calls_for_slide_image_overlay(slide, image_path)` → `list[ProposedToolCall]` — calls `build_overlay_plan`; emits `keynote.add_text_box` with planned region and `font_color`; supersedes `calls_for_slide_text_only` for image-backed slides
+
+### Renderer (`renderers/storybook.py`) — updated in 013
+- Image-backed slides now call `calls_for_slide_image_overlay` (image-aware color + region) instead of `calls_for_slide_text_only`
+- Insertion order: `keynote.add_image` full-bleed → `keynote.add_text_box` overlay (image first, text on top)
+
 ## Architecture (Image Assets to Storybook Renderer — change 012)
 
 ### Manifest loader (`images/loader.py`)
@@ -78,7 +96,7 @@ When running `oka session --tools keynote`, macOS may prompt for permission to c
 - `keynote.add_image(slide, path, x, y, width, height, object_id?)` — inserts PNG into slide; stores `type="image"` entry in object registry; validates file existence before AppleScript
 
 ### Renderer (`renderers/storybook.py`) — updated in 012
-- `render_storybook_deck(..., image_assets=None)` — optional `dict[int, Path]`; slides with images use `keynote.add_image` + full-bleed text-overlay template; slides without use 009 emoji/shape fallback
+- `render_storybook_deck(..., image_assets=None)` — optional `dict[int, Path]`; slides with images use `keynote.add_image` + `calls_for_slide_image_overlay` (013); slides without use 009 emoji/shape fallback
 - Image-backed slides 2..N use semantic `blank` layout and skip the default Keynote title; slide 1 may keep the cover title
 - `RenderResult` gains `image_count` and `missing_image_slides`
 - `image_assets=None` preserves 009 behavior unchanged

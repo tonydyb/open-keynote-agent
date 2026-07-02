@@ -243,13 +243,13 @@ set height of textItem to 110
 return count of text items
 ```
 
-如果设置字体颜色，应该设置 rich text 的 paragraph color：
+如果设置字体颜色，应该设置 rich text 的 object text color：
 
 ```applescript
-set text color of every paragraph of object text of textItem to {R, G, B}
+set color of object text of textItem to {R, G, B}
 ```
 
-不要直接在 text item 对象上设置 `text color`。
+不要直接在 text item 对象或 paragraph range 上设置 `text color`。
 
 ## 9. keynote.add_emoji_text
 

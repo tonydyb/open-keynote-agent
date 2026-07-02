@@ -144,10 +144,10 @@ The AppleScript builder SHALL return `count of text items`; the handler SHALL st
 The AppleScript builder SHALL set font color, when provided, using:
 
 ```applescript
-set text color of every paragraph of object text of textItem to {R, G, B}
+set color of object text of textItem to {R, G, B}
 ```
 
-The AppleScript builder SHALL NOT set `text color` directly on the text item object.
+The AppleScript builder SHALL NOT set `text color` directly on the text item object or paragraph range.
 
 ### Emoji Text Tool
 

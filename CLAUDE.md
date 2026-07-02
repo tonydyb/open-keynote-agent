@@ -35,6 +35,7 @@ Next changes should build toward an interactive Keynote agent:
 ```bash
 uv sync --all-extras                  # all providers + dev tools (recommended)
 uv sync --extra dev              # core + pytest + ruff only
+uv sync --extra dev --extra images    # add Pillow (needed for 013 overlay analysis)
 uv sync --extra dev --extra bedrock   # add AWS Bedrock
 uv sync --extra dev --extra openai    # add OpenAI
 uv sync --extra dev --extra gemini    # add Gemini
@@ -68,6 +69,28 @@ All tests run without cloud credentials or API keys — the default `OMA_LLM_PRO
 
 Unit tests do not require Keynote, `osascript`, macOS GUI access, or special permissions. The `keynote_integration` marker gates tests that call real Keynote; they are skipped unless `RUN_KEYNOTE_INTEGRATION=1` is set.
 
+## Architecture (Readable Storybook Text Overlays — change 013)
+
+### Overlay planner (`renderers/overlays.py`)
+- `build_overlay_plan(slide, image_path)` → `OverlayPlan` — deterministic, no LLM; falls back to 012 fixed region if Pillow is unavailable or image cannot be read
+- `OverlayRegion` — `name`, `x`, `y`, `width`, `height` (1280×720 canvas)
+- `OverlayStyle` — `text_color` (`#FFFFFF` or `#2C1810`), `font_size`, `use_backing`, `backing_color`, `backing_opacity`, `shadow`
+- `OverlayPlan` — `slide_index`, `region`, `style`, `text`, `diagnostics`
+- Candidate regions: `bottom_band`, `top_band`, `left_panel`, `right_panel`, `center_caption`
+- Luminance formula: `Y = 0.2126R + 0.7152G + 0.0722B` (BT.709); threshold `<128 → #FFFFFF`, `≥128 → #2C1810`
+- Busyness: luminance stddev; `stddev > 45` or ambiguous luminance (`112–144`) → `use_backing=True`
+- Scoring: `busyness + preference_penalty + center_penalty`; slide-kind preferences steer region choice
+- Fallback (no Pillow / unreadable image): `bottom_band` at `x=90, y=500, w=1100, h=170`, `#FFFFFF`, `use_backing=False`
+- Pillow is an optional dependency (`uv sync --extra images` or `--all-extras`)
+
+### Image layout helpers (`renderers/templates.py`) — updated in 013
+- `calls_for_slide_image_overlay(slide, image_path)` → `list[ProposedToolCall]` — calls `build_overlay_plan`, emits `keynote.add_text_box` with planned region and `font_color`; replaces `calls_for_slide_text_only` for image-backed slides
+
+### Renderer integration (`renderers/storybook.py`) — updated in 013
+- Image-backed slides now call `calls_for_slide_image_overlay(slide_spec, image_path)` instead of `calls_for_slide_text_only`
+- Order: `keynote.add_image` full-bleed → `keynote.add_text_box` overlay (image rendered first, text on top)
+- No-image fallback behavior unchanged
+
 ## Architecture (Image Assets to Storybook Renderer — change 012)
 
 ### Manifest loader (`images/loader.py`)
@@ -82,14 +105,14 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 - `keynote.add_image` — validates path exists and is a file; converts to absolute path; validates geometry; registers image object with `type="image"`, `apple_class="image"`, plus `path/x/y/width/height/apple_index`
 
 ### Renderer integration (`renderers/storybook.py`) — updated in 012
-- `render_storybook_deck(..., image_assets: dict[int, Path] | None = None)` — when an image exists for a slide, calls `keynote.add_image` full-bleed and `calls_for_slide_text_only`; when missing, uses `calls_for_slide` emoji/shape fallback
+- `render_storybook_deck(..., image_assets: dict[int, Path] | None = None)` — when an image exists for a slide, calls `keynote.add_image` full-bleed then `calls_for_slide_image_overlay` (013); when missing, uses `calls_for_slide` emoji/shape fallback
 - Image-backed slides 2..N use semantic `blank` layout and skip the default Keynote title; slide 1 may keep the cover title
 - `RenderResult` gains `image_count: int` and `missing_image_slides: list[int]`
 - `image_assets=None` preserves 009 behavior exactly
 
 ### Image layout helpers (`renderers/templates.py`) — updated in 012
 - `image_call_for_slide(slide, image_path)` → `ProposedToolCall` — deterministic full-bleed placement (`x=0`, `y=0`, `width=1280`, `height=720`)
-- `calls_for_slide_text_only(slide)` → `list[ProposedToolCall]` — overlay text template (no emoji, no shapes); used when image provides primary visual
+- `calls_for_slide_text_only(slide)` → `list[ProposedToolCall]` — fixed overlay text template (no emoji, no shapes); superseded by `calls_for_slide_image_overlay` in 013
 
 ### CLI (`cli.py`) — updated in 012
 - `oka render-storybook <deck_spec.json> --images <image_manifest.json>` — validates manifest before any Keynote mutation; prints image manifest path, images inserted count, and fallback slide list

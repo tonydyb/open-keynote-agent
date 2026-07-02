@@ -26,8 +26,8 @@
 - [x] Add `scripts.add_shape(...)`.
 - [x] Add `scripts.move_object(...)`.
 - [x] Add `scripts.resize_object(...)`.
-- [x] In `scripts.add_text_box(...)`, set font color with `set text color of every paragraph of object text of textItem to {R, G, B}`.
-- [x] Do not set `text color` directly on the text item object.
+- [x] In `scripts.add_text_box(...)`, set font color with `set color of object text of textItem to {R, G, B}`.
+- [x] Do not set `text color` directly on the text item object or paragraph range.
 - [x] In `scripts.add_shape(...)`, create the MVP default shape with `make new shape`.
 - [x] Reject `fill_color` before runner call until a writable Keynote fill path is confirmed.
 - [x] Treat `object_id` as a local session ID only.

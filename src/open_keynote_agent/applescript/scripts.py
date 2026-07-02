@@ -147,9 +147,7 @@ def add_text_box(
         )
     if font_color is not None:
         r, g, b = font_color
-        lines.append(
-            f"            set text color of every paragraph of object text of textItem to {{{r}, {g}, {b}}}"
-        )
+        lines.append(f"            set color of object text of textItem to {{{r}, {g}, {b}}}")
     lines += [
         "            return count of text items",
         "        end tell",
