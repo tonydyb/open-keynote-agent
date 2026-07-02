@@ -482,6 +482,60 @@ def _make_get_document_info(runner: ScriptRunner):
     return handler
 
 
+def _make_add_image(runner: ScriptRunner):
+    def handler(args: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
+        slide = args["slide"]
+        raw_path = args["path"]
+        x = float(args["x"])
+        y = float(args["y"])
+        width = float(args["width"])
+        height = float(args["height"])
+
+        if slide < 1:
+            raise ValueError(f"slide must be >= 1, got {slide}.")
+
+        resolved = Path(raw_path).expanduser().resolve()
+        if not resolved.exists() or not resolved.is_file():
+            raise ValueError(f"Image file does not exist or is not a file: {resolved}")
+
+        kn_slide_count = context.get("keynote", {}).get("slide_count")
+        validate_geometry(slide, x, y, width, height, slide_count=kn_slide_count)
+
+        oid, auto = _resolve_object_id(args, slide, "image", context)
+
+        script = scripts.add_image(
+            slide=slide,
+            path=str(resolved),
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+        )
+        result = runner.run(script)
+        if not result.ok:
+            raise RuntimeError(result.stderr or "AppleScript error")
+        apple_index = _parse_created_index(result.stdout, "image")
+
+        if auto:
+            commit_object_id(slide, "image", context)
+        entry: dict[str, Any] = {
+            "object_id": oid,
+            "slide": slide,
+            "type": "image",
+            "apple_class": "image",
+            "apple_index": apple_index,
+            "path": str(resolved),
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+        }
+        _register_object(context, entry)
+        return {"observation": f"Added image {oid!r} on slide {slide}.", "object_id": oid}
+
+    return handler
+
+
 def register_keynote_tools(registry: ToolRegistry, runner: ScriptRunner) -> None:
     registry.register(ToolDefinition(
         name="keynote.list_themes",
@@ -674,4 +728,23 @@ def register_keynote_tools(registry: ToolRegistry, runner: ScriptRunner) -> None
         },
         mutating=True,
         handler=_make_resize_object(runner),
+    ))
+    registry.register(ToolDefinition(
+        name="keynote.add_image",
+        description="Insert a local image file into a slide.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "slide": {"type": "integer", "description": "Slide number (1-indexed)"},
+                "path": {"type": "string", "description": "Path to the image file (converted to absolute path)"},
+                "x": {"type": "number", "description": "Left position in points"},
+                "y": {"type": "number", "description": "Top position in points"},
+                "width": {"type": "number", "description": "Width in points"},
+                "height": {"type": "number", "description": "Height in points"},
+                "object_id": {"type": "string", "description": "Optional stable object ID (auto-generated if omitted)"},
+            },
+            "required": ["slide", "path", "x", "y", "width", "height"],
+        },
+        mutating=True,
+        handler=_make_add_image(runner),
     ))

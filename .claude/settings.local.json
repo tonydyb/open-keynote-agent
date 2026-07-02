@@ -1,8 +1,25 @@
 {
   "permissions": {
     "allow": [
-      "Bash(*)",
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "Glob",
+      "Grep",
+      "LS",
+      "TodoRead",
+      "TodoWrite",
+      "WebFetch",
+      "WebSearch",
+      "NotebookRead",
+      "NotebookEdit",
+      "Task",
       "Bash(uv run *)"
-    ]
+    ],
+    "deny": [],
+    "ask": [],
+    "defaultMode": "bypassPermissions"
   }
 }

@@ -1570,3 +1570,140 @@ def test_keynote_smoke(tmp_path: Path):
     _step("keynote.export_pdf", {"path": str(pdf_path)})
     assert pdf_path.exists()
     assert pdf_path.stat().st_size > 0
+
+
+# ---------------------------------------------------------------------------
+# scripts.add_image (012)
+# ---------------------------------------------------------------------------
+
+class TestAddImageScript:
+    def test_basic_script_structure(self):
+        script = scripts.add_image(slide=1, path="/tmp/test.png", x=600, y=120, width=620, height=430)
+        assert 'tell slide 1' in script
+        assert 'make new image with properties {file:POSIX file "/tmp/test.png"}' in script
+        assert 'set position of imageItem to {600, 120}' in script
+        assert 'set width of imageItem to 620' in script
+        assert 'set height of imageItem to 430' in script
+        assert 'return count of images' in script
+
+    def test_does_not_write_object_name(self):
+        # object_id is local-only; Keynote image items don't reliably support writable object name
+        script = scripts.add_image(slide=1, path="/tmp/img.png", x=0, y=0, width=100, height=100)
+        assert 'object name' not in script
+
+    def test_escapes_path_with_quotes(self):
+        script = scripts.add_image(slide=1, path='/tmp/my "deck".png', x=0, y=0, width=100, height=100)
+        assert '\\"' in script
+        assert 'my "deck"' not in script
+
+    def test_float_geometry_formatted(self):
+        script = scripts.add_image(slide=1, path="/tmp/img.png", x=100.5, y=200.5, width=300.5, height=400.5)
+        assert '100.5' in script
+        assert '200.5' in script
+
+
+# ---------------------------------------------------------------------------
+# keynote.add_image handler (012)
+# ---------------------------------------------------------------------------
+
+class TestAddImageTool:
+    def _make_png(self, tmp_path: Path, name: str = "slide_01.png") -> Path:
+        p = tmp_path / name
+        p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)  # minimal fake PNG header
+        return p
+
+    def test_registers_image_in_context(self, tmp_path: Path):
+        png = self._make_png(tmp_path)
+        fake = FakeScriptRunner()
+        result, state = _run_tool(
+            "keynote.add_image",
+            {"slide": 1, "path": str(png), "x": 600, "y": 120, "width": 620, "height": 430, "object_id": "slide_01_art"},
+            fake,
+        )
+        assert result.ok
+        obj = state.context["keynote"]["objects"]["slide_01_art"]
+        assert obj["type"] == "image"
+        assert obj["slide"] == 1
+        assert obj["x"] == 600.0
+        assert obj["y"] == 120.0
+        assert obj["width"] == 620.0
+        assert obj["height"] == 430.0
+        assert obj["apple_class"] == "image"
+        assert obj["apple_index"] == 1
+
+    def test_context_type_is_image(self, tmp_path: Path):
+        png = self._make_png(tmp_path)
+        _, state = _run_tool(
+            "keynote.add_image",
+            {"slide": 1, "path": str(png), "x": 0, "y": 0, "width": 100, "height": 100, "object_id": "slide_01_art"},
+            FakeScriptRunner(),
+        )
+        assert state.context["keynote"]["objects"]["slide_01_art"]["type"] == "image"
+
+    def test_slide_objects_index_updated(self, tmp_path: Path):
+        png = self._make_png(tmp_path)
+        _, state = _run_tool(
+            "keynote.add_image",
+            {"slide": 1, "path": str(png), "x": 0, "y": 0, "width": 100, "height": 100, "object_id": "slide_01_art"},
+            FakeScriptRunner(),
+        )
+        assert "slide_01_art" in state.context["keynote"]["slides"]["1"]["objects"]
+
+    def test_missing_file_raises(self, tmp_path: Path):
+        fake = FakeScriptRunner()
+        result, _ = _run_tool(
+            "keynote.add_image",
+            {"slide": 1, "path": str(tmp_path / "nonexistent.png"), "x": 0, "y": 0, "width": 100, "height": 100},
+            fake,
+        )
+        assert result.ok is False
+        assert "not a file" in (result.error or "").lower() or "does not exist" in (result.error or "").lower()
+
+    def test_invalid_slide_raises(self, tmp_path: Path):
+        png = self._make_png(tmp_path)
+        result, _ = _run_tool(
+            "keynote.add_image",
+            {"slide": 0, "path": str(png), "x": 0, "y": 0, "width": 100, "height": 100},
+            FakeScriptRunner(),
+        )
+        assert result.ok is False
+
+    def test_invalid_geometry_negative_width(self, tmp_path: Path):
+        png = self._make_png(tmp_path)
+        result, _ = _run_tool(
+            "keynote.add_image",
+            {"slide": 1, "path": str(png), "x": 0, "y": 0, "width": -1, "height": 100},
+            FakeScriptRunner(),
+        )
+        assert result.ok is False
+
+    def test_invalid_object_id_raises(self, tmp_path: Path):
+        png = self._make_png(tmp_path)
+        result, _ = _run_tool(
+            "keynote.add_image",
+            {"slide": 1, "path": str(png), "x": 0, "y": 0, "width": 100, "height": 100, "object_id": "INVALID ID!"},
+            FakeScriptRunner(),
+        )
+        assert result.ok is False
+
+    def test_auto_object_id_generated(self, tmp_path: Path):
+        png = self._make_png(tmp_path)
+        result, state = _run_tool(
+            "keynote.add_image",
+            {"slide": 1, "path": str(png), "x": 0, "y": 0, "width": 100, "height": 100},
+            FakeScriptRunner(),
+        )
+        assert result.ok
+        oid = result.output["object_id"]
+        assert oid.startswith("slide_01_image")
+        assert oid in state.context["keynote"]["objects"]
+
+    def test_path_stored_as_absolute(self, tmp_path: Path):
+        png = self._make_png(tmp_path)
+        _, state = _run_tool(
+            "keynote.add_image",
+            {"slide": 1, "path": str(png), "x": 0, "y": 0, "width": 100, "height": 100, "object_id": "slide_01_art"},
+            FakeScriptRunner(),
+        )
+        stored_path = state.context["keynote"]["objects"]["slide_01_art"]["path"]
+        assert Path(stored_path).is_absolute()

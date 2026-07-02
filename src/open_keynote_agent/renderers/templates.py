@@ -6,6 +6,8 @@ a simple deterministic expression.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from open_keynote_agent.agent.session import ProposedToolCall
 from open_keynote_agent.deck.schema import SlideSpec
 
@@ -59,6 +61,8 @@ FONT_SUBTITLE = 36
 FONT_BODY = 28
 FONT_EMOJI_DEFAULT = 80
 FONT_CLIMAX_TITLE_HINT = 64  # used as body/subtitle font size for climax
+FONT_OVERLAY_BODY = 34
+FONT_OVERLAY_SUBTITLE = 38
 
 # Semantic layout map: SlideSpec.kind -> semantic layout name
 LAYOUT_FOR_KIND: dict[str, str] = {
@@ -349,4 +353,93 @@ def _content_calls(slide: SlideSpec, idx: int) -> list[ProposedToolCall]:
         x0=EMOJI_RIGHT_X, y0=EMOJI_RIGHT_Y,
         size=FONT_EMOJI_DEFAULT, spacing=EMOJI_SPACING,
     )
+    return calls
+
+
+# ---------------------------------------------------------------------------
+# Image frame constants (1280x720 canvas)
+# ---------------------------------------------------------------------------
+
+# Full-bleed image frame for image-backed storybook pages.
+IMAGE_FULL_X = 0
+IMAGE_FULL_Y = 0
+IMAGE_FULL_W = W
+IMAGE_FULL_H = H
+
+# Deterministic overlay text frame. Later changes can add visual analysis,
+# text panels, shadows, or alternate positions.
+OVERLAY_TEXT_X = 90
+OVERLAY_TEXT_Y = 500
+OVERLAY_TEXT_W = W - OVERLAY_TEXT_X * 2
+OVERLAY_TEXT_H = 170
+
+
+def image_call_for_slide(slide: SlideSpec, image_path: Path) -> ProposedToolCall:
+    """Return the deterministic keynote.add_image call for a slide's image asset."""
+    idx = slide.index
+
+    return ProposedToolCall(
+        tool="keynote.add_image",
+        args={
+            "slide": idx,
+            "path": str(image_path),
+            "x": IMAGE_FULL_X,
+            "y": IMAGE_FULL_Y,
+            "width": IMAGE_FULL_W,
+            "height": IMAGE_FULL_H,
+            "object_id": _oid(idx, "art"),
+        },
+        description=f"Insert illustration on slide {idx}",
+    )
+
+
+def calls_for_slide_text_only(slide: SlideSpec) -> list[ProposedToolCall]:
+    """Return only text-related template calls for a slide (no emoji, no decorative shapes).
+
+    Used when an image asset provides the primary visual for the slide.
+    """
+    kind = slide.kind
+    idx = slide.index
+
+    if kind == "cover":
+        calls: list[ProposedToolCall] = []
+        if slide.subtitle:
+            calls.append(ProposedToolCall(
+                tool="keynote.add_text_box",
+                args={
+                    "slide": idx,
+                    "text": slide.subtitle,
+                    "x": OVERLAY_TEXT_X,
+                    "y": OVERLAY_TEXT_Y,
+                    "width": OVERLAY_TEXT_W,
+                    "height": OVERLAY_TEXT_H,
+                    "font_size": FONT_OVERLAY_SUBTITLE,
+                    "object_id": _oid(idx, "subtitle"),
+                },
+                description=f"Add subtitle on slide {idx}",
+            ))
+        return calls
+
+    calls = []
+    text_parts = list(slide.body)
+    if not text_parts and slide.subtitle:
+        text_parts = [slide.subtitle]
+    if not text_parts:
+        text_parts = [slide.title]
+
+    text = "\n".join(text_parts)
+    calls.append(ProposedToolCall(
+        tool="keynote.add_text_box",
+        args={
+            "slide": idx,
+            "text": text,
+            "x": OVERLAY_TEXT_X,
+            "y": OVERLAY_TEXT_Y,
+            "width": OVERLAY_TEXT_W,
+            "height": OVERLAY_TEXT_H,
+            "font_size": FONT_OVERLAY_BODY,
+            "object_id": _oid(idx, "body"),
+        },
+        description=f"Add overlay text on slide {idx}",
+    ))
     return calls

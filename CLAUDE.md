@@ -60,12 +60,40 @@ uv run oka session --tools demo         # same as default
 uv run oka session --tools keynote      # real Keynote via AppleScript (macOS only)
 uv run oka generate-images <deck_spec_en.json> --dry-run --slides 1,4,9  # review prompts (no images)
 uv run oka generate-images <deck_spec_en.json> --provider bedrock --slides 1,4,9  # generate images
+uv run oka render-storybook <deck_spec.json> --images <image_manifest.json> --no-pdf  # render with images
 RUN_KEYNOTE_INTEGRATION=1 uv run python -m pytest -m keynote_integration  # Keynote smoke test
 ```
 
 All tests run without cloud credentials or API keys — the default `OMA_LLM_PROVIDER=fake` is used.
 
 Unit tests do not require Keynote, `osascript`, macOS GUI access, or special permissions. The `keynote_integration` marker gates tests that call real Keynote; they are skipped unless `RUN_KEYNOTE_INTEGRATION=1` is set.
+
+## Architecture (Image Assets to Storybook Renderer — change 012)
+
+### Manifest loader (`images/loader.py`)
+- `load_image_assets(manifest_path: Path)` → `dict[int, Path]` — loads `image_manifest.json`, resolves each asset path relative to the manifest directory, returns `slide_index → absolute Path`
+- Rejects: manifest not found, invalid JSON/schema, absolute asset paths, duplicate `slide_index` entries, listed files that do not exist
+- Missing slide indexes are allowed (fallback to emoji/shape visuals); extra manifest indexes are ignored by the renderer
+
+### AppleScript builder (`applescript/scripts.py`) — updated in 012
+- `add_image(slide, path, x, y, width, height)` → `str` — creates image on slide; sets position, width, and height via separate `set` statements; returns `count of images`; object IDs remain local-only
+
+### Keynote tool (`tools/keynote.py`) — updated in 012
+- `keynote.add_image` — validates path exists and is a file; converts to absolute path; validates geometry; registers image object with `type="image"`, `apple_class="image"`, plus `path/x/y/width/height/apple_index`
+
+### Renderer integration (`renderers/storybook.py`) — updated in 012
+- `render_storybook_deck(..., image_assets: dict[int, Path] | None = None)` — when an image exists for a slide, calls `keynote.add_image` full-bleed and `calls_for_slide_text_only`; when missing, uses `calls_for_slide` emoji/shape fallback
+- Image-backed slides 2..N use semantic `blank` layout and skip the default Keynote title; slide 1 may keep the cover title
+- `RenderResult` gains `image_count: int` and `missing_image_slides: list[int]`
+- `image_assets=None` preserves 009 behavior exactly
+
+### Image layout helpers (`renderers/templates.py`) — updated in 012
+- `image_call_for_slide(slide, image_path)` → `ProposedToolCall` — deterministic full-bleed placement (`x=0`, `y=0`, `width=1280`, `height=720`)
+- `calls_for_slide_text_only(slide)` → `list[ProposedToolCall]` — overlay text template (no emoji, no shapes); used when image provides primary visual
+
+### CLI (`cli.py`) — updated in 012
+- `oka render-storybook <deck_spec.json> --images <image_manifest.json>` — validates manifest before any Keynote mutation; prints image manifest path, images inserted count, and fallback slide list
+- `--output` and `--no-pdf` preserved; no-image behavior unchanged
 
 ## Architecture (Image Prompt Director — change 011)
 

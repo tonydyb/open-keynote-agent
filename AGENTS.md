@@ -69,6 +69,28 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 
 When running `oka session --tools keynote`, macOS may prompt for permission to control Keynote via Automation. Grant it when asked.
 
+## Architecture (Image Assets to Storybook Renderer — change 012)
+
+### Manifest loader (`images/loader.py`)
+- `load_image_assets(manifest_path)` → `dict[int, Path]` — resolves asset paths relative to manifest directory; fails early if manifest invalid, asset paths are absolute, indexes duplicated, or listed files missing
+
+### Keynote tool (`tools/keynote.py`) — updated in 012
+- `keynote.add_image(slide, path, x, y, width, height, object_id?)` — inserts PNG into slide; stores `type="image"` entry in object registry; validates file existence before AppleScript
+
+### Renderer (`renderers/storybook.py`) — updated in 012
+- `render_storybook_deck(..., image_assets=None)` — optional `dict[int, Path]`; slides with images use `keynote.add_image` + full-bleed text-overlay template; slides without use 009 emoji/shape fallback
+- Image-backed slides 2..N use semantic `blank` layout and skip the default Keynote title; slide 1 may keep the cover title
+- `RenderResult` gains `image_count` and `missing_image_slides`
+- `image_assets=None` preserves 009 behavior unchanged
+
+### Templates (`renderers/templates.py`) — updated in 012
+- `image_call_for_slide(slide, path)` — deterministic full-bleed `keynote.add_image` call (`x=0`, `y=0`, `width=1280`, `height=720`)
+- `calls_for_slide_text_only(slide)` — deterministic overlay text template (no emoji, no shapes) used when image provides primary visual
+
+### CLI — updated in 012
+- `oka render-storybook <deck_spec.json> --images <image_manifest.json>` — validates manifest before Keynote; fallback visuals for missing images; invalid manifest exits before Keynote mutation
+- Does NOT generate images; consumes `image_manifest.json` produced by 010/011
+
 ## Architecture (Image Prompt Director — change 011)
 
 ### Director module (`images/director.py`)

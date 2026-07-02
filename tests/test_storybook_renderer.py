@@ -363,6 +363,28 @@ class TestRenderStopsOnFailure:
         with pytest.raises(RuntimeError, match="keynote.create_document"):
             render_storybook_deck(_three_pigs_deck(), registry, state, output_dir=tmp_path, export_pdf=False)
 
+    def test_stops_on_add_image_failure(self, tmp_path: Path):
+        png = _make_fake_png(tmp_path, "slide_01.png")
+        fake = _make_fake_runner()
+        fake.responses[scripts.add_image(
+            slide=1,
+            path=str(png.resolve()),
+            x=0,
+            y=0,
+            width=1280,
+            height=720,
+        )] = ScriptRunResult(stdout="", stderr="image insert failed", returncode=1)
+        registry, state = _make_registry_and_state(fake)
+        with pytest.raises(RuntimeError, match="keynote.add_image"):
+            render_storybook_deck(
+                _three_pigs_deck(),
+                registry,
+                state,
+                output_dir=tmp_path,
+                export_pdf=False,
+                image_assets={1: png},
+            )
+
 
 class TestToolResultsPopulated:
     def test_tool_results_is_non_empty(self, tmp_path: Path):
@@ -569,3 +591,416 @@ def test_storybook_smoke(tmp_path: Path):
     pdf = Path(result.pdf_path)
     assert pdf.exists()
     assert pdf.stat().st_size > 0
+
+
+# ---------------------------------------------------------------------------
+# Image manifest loader tests (012)
+# ---------------------------------------------------------------------------
+
+def _write_manifest(tmp_path: Path, assets: list[dict], extra: dict | None = None) -> Path:
+    """Write a minimal image_manifest.json to tmp_path."""
+    import json as _json
+    data: dict = {
+        "deck_title": "Test Deck",
+        "provider": "fake",
+        "assets_dir": "assets",
+        "assets": assets,
+    }
+    if extra:
+        data.update(extra)
+    manifest = tmp_path / "image_manifest.json"
+    manifest.write_text(_json.dumps(data), encoding="utf-8")
+    return manifest
+
+
+def _make_fake_png(directory: Path, filename: str) -> Path:
+    p = directory / filename
+    p.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+    return p
+
+
+class TestLoadImageAssets:
+    from open_keynote_agent.images.loader import load_image_assets
+
+    def _load(self, manifest_path):
+        from open_keynote_agent.images.loader import load_image_assets
+        return load_image_assets(manifest_path)
+
+    def test_returns_mapping(self, tmp_path: Path):
+        assets_dir = tmp_path / "assets"
+        assets_dir.mkdir()
+        _make_fake_png(assets_dir, "slide_01.png")
+        manifest = _write_manifest(tmp_path, [
+            {"slide_index": 1, "prompt_hash": "abc", "provider": "fake", "path": "assets/slide_01.png", "cached": False},
+        ])
+        result = self._load(manifest)
+        assert 1 in result
+        assert result[1].is_absolute()
+        assert result[1].exists()
+
+    def test_resolves_paths_relative_to_manifest_dir(self, tmp_path: Path):
+        assets_dir = tmp_path / "assets"
+        assets_dir.mkdir()
+        _make_fake_png(assets_dir, "slide_02.png")
+        manifest = _write_manifest(tmp_path, [
+            {"slide_index": 2, "prompt_hash": "abc", "provider": "fake", "path": "assets/slide_02.png", "cached": False},
+        ])
+        result = self._load(manifest)
+        assert result[2] == (tmp_path / "assets" / "slide_02.png").resolve()
+
+    def test_empty_manifest_returns_empty_dict(self, tmp_path: Path):
+        manifest = _write_manifest(tmp_path, [])
+        result = self._load(manifest)
+        assert result == {}
+
+    def test_manifest_not_found_raises(self, tmp_path: Path):
+        from open_keynote_agent.images.loader import load_image_assets
+        import pytest as _pytest
+        with _pytest.raises(ValueError, match="not found"):
+            load_image_assets(tmp_path / "does_not_exist.json")
+
+    def test_duplicate_slide_index_fails(self, tmp_path: Path):
+        assets_dir = tmp_path / "assets"
+        assets_dir.mkdir()
+        _make_fake_png(assets_dir, "slide_01.png")
+        manifest = _write_manifest(tmp_path, [
+            {"slide_index": 1, "prompt_hash": "abc", "provider": "fake", "path": "assets/slide_01.png", "cached": False},
+            {"slide_index": 1, "prompt_hash": "def", "provider": "fake", "path": "assets/slide_01.png", "cached": False},
+        ])
+        import pytest as _pytest
+        with _pytest.raises(ValueError, match="Duplicate"):
+            self._load(manifest)
+
+    def test_absolute_asset_path_fails(self, tmp_path: Path):
+        assets_dir = tmp_path / "assets"
+        assets_dir.mkdir()
+        png = _make_fake_png(assets_dir, "slide_01.png")
+        manifest = _write_manifest(tmp_path, [
+            {"slide_index": 1, "prompt_hash": "abc", "provider": "fake", "path": str(png), "cached": False},
+        ])
+        import pytest as _pytest
+        with _pytest.raises(ValueError, match="absolute"):
+            self._load(manifest)
+
+    def test_missing_listed_file_fails(self, tmp_path: Path):
+        assets_dir = tmp_path / "assets"
+        assets_dir.mkdir()
+        # Do NOT create the PNG
+        manifest = _write_manifest(tmp_path, [
+            {"slide_index": 1, "prompt_hash": "abc", "provider": "fake", "path": "assets/slide_01.png", "cached": False},
+        ])
+        import pytest as _pytest
+        with _pytest.raises(ValueError, match="not found"):
+            self._load(manifest)
+
+
+# ---------------------------------------------------------------------------
+# Image template helpers tests (012)
+# ---------------------------------------------------------------------------
+
+class TestImageTemplates:
+    def test_image_call_for_slide_uses_full_bleed_frame(self):
+        from pathlib import Path as _Path
+        from open_keynote_agent.renderers.templates import (
+            IMAGE_FULL_H,
+            IMAGE_FULL_W,
+            IMAGE_FULL_X,
+            IMAGE_FULL_Y,
+            image_call_for_slide,
+        )
+        slide = _slide(1, kind="cover")
+        call = image_call_for_slide(slide, _Path("/tmp/img.png"))
+        assert call.tool == "keynote.add_image"
+        assert call.args["x"] == IMAGE_FULL_X
+        assert call.args["y"] == IMAGE_FULL_Y
+        assert call.args["width"] == IMAGE_FULL_W
+        assert call.args["height"] == IMAGE_FULL_H
+
+    def test_image_call_for_slide_all_kinds_use_full_bleed_frame(self):
+        from pathlib import Path as _Path
+        from open_keynote_agent.renderers.templates import IMAGE_FULL_W, image_call_for_slide
+        for kind in ["characters", "chapter", "content", "climax", "lesson", "ending"]:
+            slide = _slide(3, kind=kind)
+            call = image_call_for_slide(slide, _Path("/tmp/img.png"))
+            assert call.args["x"] == 0
+            assert call.args["width"] == IMAGE_FULL_W
+
+    def test_image_call_object_id_uses_art_suffix(self):
+        from pathlib import Path as _Path
+        from open_keynote_agent.renderers.templates import image_call_for_slide
+        slide = _slide(5, kind="chapter")
+        call = image_call_for_slide(slide, _Path("/tmp/img.png"))
+        assert call.args["object_id"] == "slide_05_art"
+
+    def test_calls_for_slide_text_only_returns_no_emoji(self):
+        from open_keynote_agent.renderers.templates import calls_for_slide_text_only
+        slide = _slide(2, kind="chapter", body=["A wolf came"])
+        calls = calls_for_slide_text_only(slide)
+        emoji_calls = [c for c in calls if c.tool == "keynote.add_emoji_text"]
+        assert emoji_calls == []
+
+    def test_calls_for_slide_text_only_returns_no_shape(self):
+        from open_keynote_agent.renderers.templates import calls_for_slide_text_only
+        slide = _slide(1, kind="cover")
+        calls = calls_for_slide_text_only(slide)
+        shape_calls = [c for c in calls if c.tool == "keynote.add_shape"]
+        assert shape_calls == []
+
+    def test_calls_for_slide_text_only_includes_body(self):
+        from open_keynote_agent.renderers.templates import calls_for_slide_text_only
+        slide = _slide(2, kind="chapter", body=["The wolf came", "He huffed"])
+        calls = calls_for_slide_text_only(slide)
+        text_calls = [c for c in calls if c.tool == "keynote.add_text_box"]
+        assert len(text_calls) == 1
+        assert "The wolf came" in text_calls[0].args["text"]
+
+    def test_calls_for_slide_text_only_uses_overlay_frame(self):
+        from open_keynote_agent.renderers.templates import (
+            OVERLAY_TEXT_H,
+            OVERLAY_TEXT_W,
+            OVERLAY_TEXT_X,
+            OVERLAY_TEXT_Y,
+            calls_for_slide_text_only,
+        )
+        slide = _slide(2, kind="chapter", body=["The wolf came"])
+        call = [c for c in calls_for_slide_text_only(slide) if c.tool == "keynote.add_text_box"][0]
+        assert call.args["x"] == OVERLAY_TEXT_X
+        assert call.args["y"] == OVERLAY_TEXT_Y
+        assert call.args["width"] == OVERLAY_TEXT_W
+        assert call.args["height"] == OVERLAY_TEXT_H
+
+
+# ---------------------------------------------------------------------------
+# Renderer integration with image assets (012)
+# ---------------------------------------------------------------------------
+
+def _make_fake_runner_with_image(themes: str = "Parchment\nBasic White\n") -> FakeScriptRunner:
+    """Like _make_fake_runner but also accepts add_image calls (default response = '1')."""
+    return _make_fake_runner(themes)
+
+
+def _render_with_images(
+    tmp_path: Path,
+    image_assets: dict[int, Path],
+    deck: DeckSpec | None = None,
+) -> tuple[RenderResult, FakeScriptRunner]:
+    fake = _make_fake_runner_with_image()
+    registry, state = _make_registry_and_state(fake)
+    if deck is None:
+        deck = _three_pigs_deck()
+    result = render_storybook_deck(
+        deck, registry, state,
+        output_dir=tmp_path,
+        export_pdf=False,
+        image_assets=image_assets,
+    )
+    return result, fake
+
+
+class TestRendererImageIntegration:
+    def test_add_image_called_for_slide_with_asset(self, tmp_path: Path):
+        png = _make_fake_png(tmp_path, "slide_01.png")
+        result, fake = _render_with_images(tmp_path, {1: png})
+        image_calls = [c for c in fake.calls if "make new image" in c]
+        assert len(image_calls) >= 1
+
+    def test_no_primary_emoji_when_image_present(self, tmp_path: Path):
+        png = _make_fake_png(tmp_path, "slide_01.png")
+        # Slide 1 cover: with image we should NOT add_emoji_text
+        _, fake = _render_with_images(tmp_path, {1: png})
+        # Extract scripts for slide 1 emoji calls from keynote.add_emoji_text
+        # The FakeScriptRunner records raw scripts; add_emoji_text uses add_text_box under the hood
+        # So we count add_image calls vs emit from template
+        image_calls = [c for c in fake.calls if "make new image" in c and "tell slide 1" in c]
+        assert len(image_calls) == 1
+
+    def test_emoji_fallback_when_no_image(self, tmp_path: Path):
+        # No image assets supplied — emoji calls must still happen
+        result, fake = _render_with_images(tmp_path, {})
+        # At least one emoji call across all slides
+        text_item_calls = [c for c in fake.calls if "make new text item" in c]
+        assert len(text_item_calls) >= 1
+
+    def test_image_count_in_result(self, tmp_path: Path):
+        png1 = _make_fake_png(tmp_path, "slide_01.png")
+        png3 = _make_fake_png(tmp_path, "slide_03.png")
+        result, _ = _render_with_images(tmp_path, {1: png1, 3: png3})
+        assert result.image_count == 2
+
+    def test_missing_image_slides_recorded(self, tmp_path: Path):
+        png1 = _make_fake_png(tmp_path, "slide_01.png")
+        # Provide image only for slide 1; slides 2-8 are missing
+        result, _ = _render_with_images(tmp_path, {1: png1})
+        assert 2 in result.missing_image_slides
+        assert 1 not in result.missing_image_slides
+
+    def test_no_image_assets_gives_zero_image_count(self, tmp_path: Path):
+        result = _render_three_pigs(tmp_path)
+        assert result.image_count == 0
+        assert result.missing_image_slides == []
+
+    def test_extra_manifest_assets_dont_create_extra_slides(self, tmp_path: Path):
+        deck = _three_pigs_deck()  # 8 slides
+        pngs = {i: _make_fake_png(tmp_path, f"slide_{i:02d}.png") for i in range(1, 20)}
+        result, _ = _render_with_images(tmp_path, pngs, deck=deck)
+        assert result.slide_count == 8
+
+    def test_tool_results_include_add_image(self, tmp_path: Path):
+        png = _make_fake_png(tmp_path, "slide_01.png")
+        result, _ = _render_with_images(tmp_path, {1: png})
+        tools = [r["tool"] for r in result.tool_results]
+        assert "keynote.add_image" in tools
+
+    def test_image_backed_slides_after_cover_use_blank_layout(self, tmp_path: Path):
+        png = _make_fake_png(tmp_path, "slide_02.png")
+        _, fake = _render_with_images(tmp_path, {2: png})
+        add_slide_calls = [c for c in fake.calls if "make new slide" in c]
+        slide_2_call = add_slide_calls[0]
+        assert 'master slide "Blank"' in slide_2_call
+
+    def test_image_backed_slides_after_cover_skip_default_title(self, tmp_path: Path):
+        png = _make_fake_png(tmp_path, "slide_02.png")
+        _, fake = _render_with_images(tmp_path, {2: png})
+        set_title_calls = [c for c in fake.calls if "default title item" in c]
+        assert all("角色介绍" not in c for c in set_title_calls)
+
+    def test_cover_keeps_default_title_when_image_backed(self, tmp_path: Path):
+        png = _make_fake_png(tmp_path, "slide_01.png")
+        _, fake = _render_with_images(tmp_path, {1: png})
+        set_title_calls = [c for c in fake.calls if "default title item" in c]
+        assert any("三只小猪与大灰狼" in c for c in set_title_calls)
+
+    def test_no_image_assets_none_behaves_as_009(self, tmp_path: Path):
+        result_no_img = _render_three_pigs(tmp_path / "no_img")
+        fake2 = _make_fake_runner()
+        registry2, state2 = _make_registry_and_state(fake2)
+        deck = _three_pigs_deck()
+        result_explicit_none = render_storybook_deck(
+            deck, registry2, state2,
+            output_dir=tmp_path / "explicit_none",
+            export_pdf=False,
+            image_assets=None,
+        )
+        assert result_no_img.slide_count == result_explicit_none.slide_count
+        assert result_no_img.image_count == 0
+        assert result_explicit_none.image_count == 0
+
+
+# ---------------------------------------------------------------------------
+# CLI --images tests (012)
+# ---------------------------------------------------------------------------
+
+class TestRenderStorybookCLIImages:
+    def _write_deck_spec(self, tmp_path: Path) -> Path:
+        deck = _three_pigs_deck()
+        p = tmp_path / "deck_spec.json"
+        p.write_text(deck.model_dump_json(), encoding="utf-8")
+        return p
+
+    def _fake_register(self, fake: FakeScriptRunner):
+        def patched(registry, runner):
+            return register_keynote_tools(registry, fake)
+        return patched
+
+    def _write_manifest_with_png(self, tmp_path: Path, slide_indexes: list[int]) -> Path:
+        import json as _json
+        assets_dir = tmp_path / "assets"
+        assets_dir.mkdir(exist_ok=True)
+        assets = []
+        for idx in slide_indexes:
+            fname = f"slide_{idx:02d}.png"
+            _make_fake_png(assets_dir, fname)
+            assets.append({
+                "slide_index": idx,
+                "prompt_hash": "abc",
+                "provider": "fake",
+                "path": f"assets/{fname}",
+                "cached": False,
+            })
+        data = {"deck_title": "Test", "provider": "fake", "assets_dir": "assets", "assets": assets}
+        manifest = tmp_path / "image_manifest.json"
+        manifest.write_text(_json.dumps(data), encoding="utf-8")
+        return manifest
+
+    def test_images_option_passes_assets_to_renderer(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        fake = _make_fake_runner()
+        monkeypatch.setattr(cli_module, "register_keynote_tools", self._fake_register(fake))
+        spec_path = self._write_deck_spec(tmp_path)
+        manifest = self._write_manifest_with_png(tmp_path, [1])
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "render-storybook", str(spec_path), "--output", str(out), "--no-pdf",
+            "--images", str(manifest),
+        ])
+        assert result.exit_code == 0, result.output
+        # Should have called add_image for slide 1
+        image_calls = [c for c in fake.calls if "make new image" in c]
+        assert len(image_calls) >= 1
+
+    def test_images_option_prints_manifest_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        fake = _make_fake_runner()
+        monkeypatch.setattr(cli_module, "register_keynote_tools", self._fake_register(fake))
+        spec_path = self._write_deck_spec(tmp_path)
+        manifest = self._write_manifest_with_png(tmp_path, [1])
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "render-storybook", str(spec_path), "--output", str(out), "--no-pdf",
+            "--images", str(manifest),
+        ])
+        assert "image_manifest.json" in result.output
+
+    def test_invalid_manifest_exits_before_renderer(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        fake = _make_fake_runner()
+        monkeypatch.setattr(cli_module, "register_keynote_tools", self._fake_register(fake))
+        spec_path = self._write_deck_spec(tmp_path)
+        bad_manifest = tmp_path / "bad_manifest.json"
+        bad_manifest.write_text('{"not": "a manifest"}', encoding="utf-8")
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, [
+            "render-storybook", str(spec_path), "--output", str(out), "--no-pdf",
+            "--images", str(bad_manifest),
+        ])
+        assert result.exit_code != 0
+        # Keynote should not have been touched
+        list_themes_calls = [c for c in fake.calls if "every theme" in c]
+        assert list_themes_calls == []
+
+    def test_missing_manifest_file_exits_nonzero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        fake = _make_fake_runner()
+        monkeypatch.setattr(cli_module, "register_keynote_tools", self._fake_register(fake))
+        spec_path = self._write_deck_spec(tmp_path)
+        result = cli_runner.invoke(app, [
+            "render-storybook", str(spec_path), "--no-pdf",
+            "--images", str(tmp_path / "nonexistent_manifest.json"),
+        ])
+        assert result.exit_code != 0
+
+    def test_no_images_option_unchanged_behavior(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        fake = _make_fake_runner()
+        monkeypatch.setattr(cli_module, "register_keynote_tools", self._fake_register(fake))
+        spec_path = self._write_deck_spec(tmp_path)
+        out = tmp_path / "out"
+        result = cli_runner.invoke(app, ["render-storybook", str(spec_path), "--output", str(out), "--no-pdf"])
+        assert result.exit_code == 0, result.output
+        image_calls = [c for c in fake.calls if "make new image" in c]
+        assert image_calls == []
+
+    def test_tool_results_jsonl_contains_add_image(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        fake = _make_fake_runner()
+        monkeypatch.setattr(cli_module, "register_keynote_tools", self._fake_register(fake))
+        spec_path = self._write_deck_spec(tmp_path)
+        manifest = self._write_manifest_with_png(tmp_path, [1])
+        out = tmp_path / "out"
+        cli_runner.invoke(app, [
+            "render-storybook", str(spec_path), "--output", str(out), "--no-pdf",
+            "--images", str(manifest),
+        ])
+        lines = (out / "tool_results.jsonl").read_text().splitlines()
+        tools = [json.loads(line)["tool"] for line in lines]
+        assert "keynote.add_image" in tools

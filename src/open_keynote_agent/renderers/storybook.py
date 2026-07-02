@@ -3,13 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from open_keynote_agent.agent.executor import execute_plan
 from open_keynote_agent.agent.registry import ToolRegistry
 from open_keynote_agent.agent.session import Plan, ProposedToolCall, SessionState
 from open_keynote_agent.deck.schema import DeckSpec
-from open_keynote_agent.renderers.templates import LAYOUT_FOR_KIND, calls_for_slide
+from open_keynote_agent.renderers.templates import (
+    LAYOUT_FOR_KIND,
+    calls_for_slide,
+    calls_for_slide_text_only,
+    image_call_for_slide,
+)
 
 _THEME_FALLBACKS = ["Parchment", "Basic White"]
 
@@ -21,6 +26,8 @@ class RenderResult(BaseModel):
     pdf_path: str | None
     output_dir: str
     tool_results: list[dict[str, Any]]
+    image_count: int = 0
+    missing_image_slides: list[int] = Field(default_factory=list)
 
 
 def _run_one(
@@ -48,6 +55,7 @@ def render_storybook_deck(
     *,
     output_dir: Path,
     export_pdf: bool = True,
+    image_assets: dict[int, Path] | None = None,
 ) -> RenderResult:
     if deck.slides[0].kind != "cover":
         raise ValueError(
@@ -56,6 +64,8 @@ def render_storybook_deck(
         )
 
     tool_results: list[dict[str, Any]] = []
+    image_count = 0
+    missing_image_slides: list[int] = []
 
     # 1. List themes and select one
     _run_one("keynote.list_themes", {}, "List Keynote themes", registry, state, tool_results)
@@ -88,9 +98,10 @@ def render_storybook_deck(
     # Call add_slide for slides 2..N.
     for slide_spec in deck.slides:
         keynote_slide_num = slide_spec.index  # 1-indexed, matches SlideSpec.index
+        has_image = image_assets is not None and slide_spec.index in image_assets
 
         if slide_spec.index > 1:
-            layout = LAYOUT_FOR_KIND.get(slide_spec.kind, "title_body")
+            layout = "blank" if has_image else LAYOUT_FOR_KIND.get(slide_spec.kind, "title_body")
             _run_one(
                 "keynote.add_slide",
                 {"layout": layout},
@@ -98,16 +109,33 @@ def render_storybook_deck(
                 registry, state, tool_results,
             )
 
-        # Set title
-        _run_one(
-            "keynote.set_slide_title",
-            {"slide": keynote_slide_num, "title": slide_spec.title},
-            f"Set title of slide {keynote_slide_num}",
-            registry, state, tool_results,
-        )
+        # Keep the cover title. For image-backed pages after the cover, avoid
+        # presentation-style default titles and render text as image overlay.
+        if slide_spec.index == 1 or not has_image:
+            _run_one(
+                "keynote.set_slide_title",
+                {"slide": keynote_slide_num, "title": slide_spec.title},
+                f"Set title of slide {keynote_slide_num}",
+                registry, state, tool_results,
+            )
 
-        # Execute template object calls
-        object_calls = calls_for_slide(slide_spec)
+        # Image asset or emoji/shape fallback
+        if has_image:
+            image_path = image_assets[slide_spec.index]
+            img_call = image_call_for_slide(slide_spec, image_path)
+            _run_one(
+                img_call.tool,
+                img_call.args,
+                img_call.description,
+                registry, state, tool_results,
+            )
+            image_count += 1
+            object_calls = calls_for_slide_text_only(slide_spec)
+        else:
+            if image_assets is not None:
+                missing_image_slides.append(slide_spec.index)
+            object_calls = calls_for_slide(slide_spec)
+
         if object_calls:
             plan = Plan(steps=object_calls)
             results = execute_plan(plan, registry, state)
@@ -138,4 +166,6 @@ def render_storybook_deck(
         pdf_path=pdf_path,
         output_dir=str(output_dir),
         tool_results=tool_results,
+        image_count=image_count,
+        missing_image_slides=missing_image_slides,
     )

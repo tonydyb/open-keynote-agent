@@ -233,3 +233,33 @@ def get_document_info() -> str:
         '    return docName & "|" & slideCount\n'
         "end tell"
     )
+
+
+def add_image(
+    slide: int,
+    path: str,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> str:
+    """Return AppleScript that inserts a local image file and returns its image index.
+
+    object_id is tracked locally only — Keynote image items do not reliably expose
+    a writable object name property, so we follow the same pattern as text_box and shape.
+    """
+    safe_path = applescript_string(path)
+    lines = [
+        'tell application "Keynote"',
+        "    tell front document",
+        f"        tell slide {slide}",
+        f'            set imageItem to make new image with properties {{file:POSIX file "{safe_path}"}}',
+        f"            set position of imageItem to {{{_n(x)}, {_n(y)}}}",
+        f"            set width of imageItem to {_n(width)}",
+        f"            set height of imageItem to {_n(height)}",
+        "            return count of images",
+        "        end tell",
+        "    end tell",
+        "end tell",
+    ]
+    return "\n".join(lines)

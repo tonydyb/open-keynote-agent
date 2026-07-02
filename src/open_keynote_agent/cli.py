@@ -24,6 +24,7 @@ from open_keynote_agent.deck.outline import render_deck_outline
 from open_keynote_agent.deck.schema import DeckSpec
 from open_keynote_agent.renderers.storybook import render_storybook_deck
 from open_keynote_agent.images.generator import generate_image_assets, parse_slide_selector
+from open_keynote_agent.images.loader import load_image_assets
 from open_keynote_agent.images.provider import UnsupportedImageProviderError, load_image_provider_from_env
 
 app = typer.Typer(help="Open Keynote Agent CLI")
@@ -409,6 +410,7 @@ def render_storybook(
     deck_spec_path: Path = typer.Argument(..., help="Path to deck_spec.json produced by oka deck-plan."),
     output: Path | None = typer.Option(None, "--output", help="Output directory (default: unique dir under .runs/)."),
     no_pdf: bool = typer.Option(False, "--no-pdf", help="Skip PDF export."),
+    images: Path | None = typer.Option(None, "--images", help="Path to image_manifest.json from oka generate-images."),
 ) -> None:
     """Render a validated DeckSpec into a Keynote storybook presentation."""
     if not deck_spec_path.exists() or not deck_spec_path.is_file():
@@ -420,6 +422,16 @@ def render_storybook(
     except Exception as exc:
         console.print(f"[red]Error:[/] Invalid DeckSpec: {exc}")
         raise typer.Exit(code=1) from exc
+
+    # Validate image manifest early — before creating or mutating Keynote
+    image_assets: dict[int, Path] | None = None
+    if images is not None:
+        console.print(f"[dim]Image manifest: {images}[/]")
+        try:
+            image_assets = load_image_assets(images)
+        except ValueError as exc:
+            console.print(f"[red]Error:[/] {exc}")
+            raise typer.Exit(code=1) from exc
 
     if output is None:
         base = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ") + "-storybook"
@@ -464,6 +476,7 @@ def render_storybook(
             deck, registry, state,
             output_dir=out_dir,
             export_pdf=not no_pdf,
+            image_assets=image_assets,
         )
     except Exception as exc:
         console.print(f"[red]Render error:[/] {exc}")
@@ -480,6 +493,10 @@ def render_storybook(
     console.print(f"[dim]Output: {out_dir}[/]")
     if result.pdf_path:
         console.print(f"[dim]PDF: {result.pdf_path}[/]")
+    if image_assets is not None:
+        console.print(f"[dim]Images inserted: {result.image_count}[/]")
+        if result.missing_image_slides:
+            console.print(f"[dim]Slides using fallback visuals: {result.missing_image_slides}[/]")
 
 
 @app.command(name="generate-images")

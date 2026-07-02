@@ -210,14 +210,43 @@ Options:
 | `--output` | `.runs/<timestamp>-storybook/` | Output directory |
 | `--no-pdf` | off | Skip PDF export |
 
+Options:
+
+| Option | Default | Description |
+|---|---|---|
+| `--images` | (none) | Path to `image_manifest.json` from `oka generate-images` |
+| `--no-pdf` | off | Skip PDF export |
+
 The command requires macOS Automation permission to control Keynote.
 
-**Limitations (change 009 MVP):**
-- No image insertion.
+**Limitations (change 009/012 MVP):**
 - Shapes limited to `rectangle` only — no `rounded_rectangle`, `oval`, or `line`.
 - No shape fill color (`fill_color` is deferred until a verified Keynote AppleScript path exists).
 - No custom fonts or animation.
 - No LLM is called — the renderer is fully deterministic.
+
+### Rendering with generated images (change 012)
+
+After generating images with `oka generate-images`, pass the manifest to `oka render-storybook`:
+
+```bash
+# Step 1: plan
+oka deck-plan "请为我制作一个关于《三只小猪》的8页绘本风Keynote" --slides 8 --output /tmp/pigs-plan
+
+# Step 2: generate illustrations
+oka generate-images /tmp/pigs-plan/deck_spec_en.json \
+  --provider bedrock --style soft_storybook_watercolor \
+  --output /tmp/pigs-art
+
+# Step 3: render with images (opens Keynote)
+oka render-storybook /tmp/pigs-plan/deck_spec.json \
+  --images /tmp/pigs-art/image_manifest.json \
+  --output /tmp/pigs-keynote
+```
+
+The renderer inserts each available image as a full-bleed 1280x720 illustration. For image-backed slides after the cover, it uses a blank layout, skips the default presentation title, and renders body text as an overlay above the image. Slides not covered by the manifest use the existing emoji/shape fallback visual. Images listed in the manifest but whose files are missing fail before Keynote is opened.
+
+`render_result.json` includes `image_count` and `missing_image_slides`. `tool_results.jsonl` includes `keynote.add_image` entries.
 
 ## Image Asset Generation
 
@@ -349,7 +378,7 @@ existing PNG files. Changed prompts or `--force` trigger regeneration.
 | `fake` | nothing | 1×1 white PNG; used in all tests |
 | `bedrock` | `OKA_IMAGE_MODEL`, `OKA_IMAGE_AWS_REGION` or `AWS_REGION`, `boto3` | AWS Bedrock Stability AI, Nova Canvas, or Titan Image |
 
-This command does **not** open Keynote. Future changes will insert these PNGs into Keynote slides.
+This command does **not** open Keynote. Use `oka render-storybook --images` to insert the PNGs into Keynote slides.
 
 ## Keynote Roadmap
 
@@ -363,4 +392,5 @@ The next project direction is an interactive Keynote agent:
 6. ✅ Storybook renderer (`oka render-storybook`, `render_storybook_deck`, deterministic layout templates).
 7. ✅ Image asset generation (`oka generate-images`, `generate_image_assets`, `FakeImageProvider`, `BedrockImageProvider`).
 8. ✅ Image prompt director (`build_directed_image_prompt`, style modes, `--dry-run`, `--slides`).
+9. ✅ Image assets to storybook renderer (`keynote.add_image`, `load_image_assets`, `render-storybook --images`, emoji/shape fallback for missing slides).
 8. Expose session events through an API suitable for a future Studio UI.
