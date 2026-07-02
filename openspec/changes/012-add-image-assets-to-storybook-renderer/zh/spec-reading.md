@@ -50,10 +50,10 @@ keynote.add_image
 {
   "slide": 1,
   "path": "/absolute/path/to/assets/slide_01.png",
-  "x": 600,
-  "y": 120,
-  "width": 620,
-  "height": 430,
+  "x": 0,
+  "y": 0,
+  "width": 1280,
+  "height": 720,
   "object_id": "slide_01_art"
 }
 ```
@@ -81,8 +81,7 @@ AppleScript 方向：
 ```applescript
 tell application "Keynote"
   tell front document
-    set targetSlide to slide 1
-    tell targetSlide
+    tell slide 1
       set imageItem to make new image with properties {file:POSIX file "/tmp/slide_01.png"}
       set position of imageItem to {0, 0}
       set width of imageItem to 1280
