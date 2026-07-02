@@ -2,6 +2,7 @@
   "permissions": {
     "allow": [
       "Bash",
+      "Bash(*)",
       "Read",
       "Edit",
       "Write",
@@ -16,7 +17,11 @@
       "NotebookRead",
       "NotebookEdit",
       "Task",
-      "Bash(uv run *)"
+      "Bash(uv run *)",
+      "Bash(cat /Users/pyproject.toml 2>/dev/null || cat /Users/youbingding/develop/open-keynote-agent/pyproject.toml | grep -A5 \"pillow\\\\|Pillow\\\\|\\\\[project\\\\]\\\\|\\\\[tool\")",
+      "Bash(cat *)",
+      "Read(//Users/**)",
+      "Bash(python3 -c \"from PIL import Image; print\\('Pillow available'\\)\")"
     ],
     "deny": [],
     "ask": [],

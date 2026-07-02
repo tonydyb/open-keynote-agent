@@ -27,7 +27,14 @@ class OpenAIClient(LLMClient):
         response = client.responses.create(
             model=self.model,
             input=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
-            text_format={"type": "json_schema", "json_schema": schema},
+            text={
+                "format": {
+                    "type": "json_schema",
+                    "name": "structured_response",
+                    "schema": schema,
+                    "strict": False,
+                }
+            },
         )
 
         text = getattr(response, "output_text", None)

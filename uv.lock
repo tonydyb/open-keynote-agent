@@ -606,7 +606,7 @@ openai = [
 requires-dist = [
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.30.0" },
     { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=0.1.0" },
-    { name = "openai", marker = "extra == 'openai'", specifier = ">=0.27.0" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=2.0.0" },
     { name = "pillow", marker = "extra == 'dev'", specifier = ">=10.0.0" },
     { name = "pillow", marker = "extra == 'images'", specifier = ">=10.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },

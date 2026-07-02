@@ -32,6 +32,7 @@ def _build_system_lines(
         "- Avoid styles explicitly rejected by the brief (e.g. blue business styling).",
         "- Infer the deck language from the primary language used in the brief.",
         "- Slide indexes must be sequential integers starting at 1, not 0.",
+        "- Slide kind must be exactly one of: cover, characters, chapter, content, climax, lesson, ending. Do not invent other kind values.",
     ]
     if bilingual:
         system_lines.extend([

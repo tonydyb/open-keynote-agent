@@ -96,8 +96,17 @@ def test_openai_complete_json_returns_dict(monkeypatch: pytest.MonkeyPatch) -> N
         def responses(self):
             class Responses:
                 @staticmethod
-                def create(model: str, input: list[dict[str, str]], text_format: dict[str, dict[str, str]]):
+                def create(model: str, input: list[dict[str, str]], text: dict, **kwargs):
                     assert model == "test-openai"
+                    assert input == [
+                        {"role": "system", "content": "Return only valid JSON matching the requested schema. Do not include any extra text."},
+                        {"role": "user", "content": "hi"},
+                    ]
+                    assert "text_format" not in kwargs
+                    assert text["format"]["type"] == "json_schema"
+                    assert text["format"]["name"] == "structured_response"
+                    assert text["format"]["schema"] == {"type": "object"}
+                    assert text["format"]["strict"] is False
                     return DummyOpenAIResponse(f"```json\n{json.dumps(expected_response)}\n```")
 
             return Responses()
@@ -154,10 +163,13 @@ def test_gemini_complete_json_returns_dict(monkeypatch: pytest.MonkeyPatch) -> N
                     @staticmethod
                     def generate_content(model: str, contents: str, config):
                         assert model == "test-gemini"
-                        assert contents == "hi"
+                        assert contents.startswith("hi\n\nReturn JSON matching this JSON schema")
+                        assert '"type": "object"' in contents
                         assert config.system_instruction == "Return only valid JSON matching the requested schema. Do not include any extra text."
                         assert config.temperature == 0.0
                         assert config.response_mime_type == "application/json"
+                        assert config.response_json_schema is None
+                        assert config.response_schema is None
                         return DummyGeminiResponse(f"```json\n{json.dumps(expected_response)}\n```")
 
                 self.models = Models()
@@ -168,11 +180,13 @@ def test_gemini_complete_json_returns_dict(monkeypatch: pytest.MonkeyPatch) -> N
             system_instruction: str,
             temperature: float,
             response_mime_type: str,
-            response_schema: dict,
+            response_json_schema: dict | None = None,
+            response_schema: dict | None = None,
         ):
             self.system_instruction = system_instruction
             self.temperature = temperature
             self.response_mime_type = response_mime_type
+            self.response_json_schema = response_json_schema
             self.response_schema = response_schema
 
     fake_google = ModuleType("google")

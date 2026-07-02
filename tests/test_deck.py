@@ -491,6 +491,13 @@ class TestPlanDeckSpec:
         system_content = messages[0]["content"]
         assert "starting at 1" in system_content
 
+    def test_slide_kind_enum_instruction_included_in_messages(self):
+        fake = FakeLLMClient(response=_minimal_deck())
+        plan_deck_spec("brief", fake)
+        system_content = fake.calls[0]["messages"][0]["content"]
+        assert "Slide kind must be exactly one of" in system_content
+        assert "cover, characters, chapter, content, climax, lesson, ending" in system_content
+
     def test_three_pigs_response_parsed(self):
         fake = FakeLLMClient(response=THREE_PIGS_RESPONSE)
         deck = plan_deck_spec("三只小猪故事", fake, slide_count_hint=8)

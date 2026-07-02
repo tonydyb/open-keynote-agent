@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -26,15 +27,19 @@ class GeminiClient(LLMClient):
             raise ImportError("google-genai is required for GeminiClient") from exc
 
         prompt = "\n".join(message["content"] for message in messages)
+        schema_prompt = (
+            f"{prompt}\n\n"
+            "Return JSON matching this JSON schema. The response must still be only JSON:\n"
+            f"{json.dumps(schema, ensure_ascii=False)}"
+        )
         client = genai.Client(api_key=self.api_key)
         response = client.models.generate_content(
             model=self.model,
-            contents=prompt,
+            contents=schema_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
                 temperature=0.0,
                 response_mime_type="application/json",
-                response_schema=schema,
             ),
         )
 
