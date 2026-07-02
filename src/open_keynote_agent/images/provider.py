@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import struct
 import zlib
+from base64 import b64decode
 from pathlib import Path
 from typing import Protocol
 
@@ -134,6 +135,120 @@ class BedrockImageProvider:
 
 
 # ---------------------------------------------------------------------------
+# OpenAI image provider
+# ---------------------------------------------------------------------------
+
+class OpenAIImageProvider:
+    name = "openai"
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        size: str = "1536x1024",
+    ) -> None:
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is required for OpenAIImageProvider")
+        if not model:
+            raise ValueError("OKA_IMAGE_MODEL or OPENAI_IMAGE_MODEL is required for OpenAIImageProvider")
+        self.api_key = api_key
+        self.model = model
+        self.size = size
+
+    def generate(self, spec: ImageSpec, output_path: Path) -> ImageGenerationResult:
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise ImportError("openai is required for OpenAIImageProvider") from exc
+
+        client = OpenAI(api_key=self.api_key)
+        response = client.images.generate(
+            model=self.model,
+            prompt=spec.prompt,
+            n=1,
+            size=self.size,
+        )
+        if not response.data:
+            raise RuntimeError("OpenAI returned no images")
+        b64_json = getattr(response.data[0], "b64_json", None)
+        if not b64_json:
+            raise RuntimeError("OpenAI image response did not include b64_json")
+        png_bytes = b64decode(b64_json)
+        output_path.write_bytes(png_bytes)
+        return ImageGenerationResult(
+            provider=self.name,
+            path=str(output_path),
+            bytes_written=len(png_bytes),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Gemini image provider
+# ---------------------------------------------------------------------------
+
+class GeminiImageProvider:
+    name = "gemini"
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+    ) -> None:
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY is required for GeminiImageProvider")
+        if not model:
+            raise ValueError("OKA_IMAGE_MODEL or GEMINI_IMAGE_MODEL is required for GeminiImageProvider")
+        self.api_key = api_key
+        self.model = model
+
+    def generate(self, spec: ImageSpec, output_path: Path) -> ImageGenerationResult:
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise ImportError("google-genai is required for GeminiImageProvider") from exc
+
+        client = genai.Client(api_key=self.api_key)
+        response = client.models.generate_content(
+            model=self.model,
+            contents=spec.prompt,
+            config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
+        )
+        image_bytes = _extract_gemini_image_bytes(response)
+        if image_bytes is None:
+            raise RuntimeError("Gemini returned no image data")
+        output_path.write_bytes(image_bytes)
+        return ImageGenerationResult(
+            provider=self.name,
+            path=str(output_path),
+            bytes_written=len(image_bytes),
+        )
+
+
+def _extract_gemini_image_bytes(response: object) -> bytes | None:
+    candidates = getattr(response, "candidates", None)
+    if not candidates:
+        return None
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None)
+        if not parts:
+            continue
+        for part in parts:
+            inline_data = getattr(part, "inline_data", None)
+            if inline_data is None:
+                inline_data = getattr(part, "inlineData", None)
+            if inline_data is None:
+                continue
+            data = getattr(inline_data, "data", None)
+            if isinstance(data, bytes):
+                return data
+            if isinstance(data, str):
+                return b64decode(data)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Provider loader
 # ---------------------------------------------------------------------------
 
@@ -165,7 +280,24 @@ def load_image_provider_from_env(provider_name: str | None = None) -> ImageProvi
             profile=os.environ.get("AWS_PROFILE"),
         )
 
+    if provider_name == "openai":
+        return OpenAIImageProvider(
+            api_key=os.environ.get("OPENAI_API_KEY", ""),
+            model=os.environ.get("OKA_IMAGE_MODEL")
+            or os.environ.get("OPENAI_IMAGE_MODEL")
+            or "gpt-image-2",
+            size=os.environ.get("OKA_IMAGE_SIZE", "1536x1024"),
+        )
+
+    if provider_name == "gemini":
+        return GeminiImageProvider(
+            api_key=os.environ.get("GEMINI_API_KEY", ""),
+            model=os.environ.get("OKA_IMAGE_MODEL")
+            or os.environ.get("GEMINI_IMAGE_MODEL")
+            or "gemini-3.1-flash-image",
+        )
+
     raise UnsupportedImageProviderError(
         f"Unsupported image provider: {provider_name!r}. "
-        "Valid providers are: fake, bedrock."
+        "Valid providers are: fake, bedrock, openai, gemini."
     )

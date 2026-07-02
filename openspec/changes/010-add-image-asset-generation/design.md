@@ -211,7 +211,7 @@ The fake provider should make tests prove:
 The implementation must support these providers in this change:
 
 ```text
-OKA_IMAGE_PROVIDER=fake|bedrock
+OKA_IMAGE_PROVIDER=fake|bedrock|openai|gemini
 ```
 
 The `OKA_` prefix is intentional for new image settings because the CLI is now `oka`. Existing `OMA_LLM_PROVIDER` remains a legacy LLM setting and is not renamed in this change.
@@ -220,7 +220,8 @@ Provider selection:
 
 - `fake` is the default provider when `OKA_IMAGE_PROVIDER` is unset.
 - `bedrock` is the primary real provider and must be selected explicitly with `OKA_IMAGE_PROVIDER=bedrock` or `--provider bedrock`.
-- `openai` is reserved for a future optional provider and is not required in this change.
+- `openai` is a real provider selected with `OKA_IMAGE_PROVIDER=openai` or `--provider openai`.
+- `gemini` is a real provider selected with `OKA_IMAGE_PROVIDER=gemini` or `--provider gemini`.
 
 Provider defaults:
 
@@ -228,6 +229,8 @@ Provider defaults:
 OKA_IMAGE_PROVIDER unset     # defaults to fake
 OKA_IMAGE_PROVIDER=fake      # explicit no-network/test provider
 OKA_IMAGE_PROVIDER=bedrock   # explicit primary real provider
+OKA_IMAGE_PROVIDER=openai    # explicit OpenAI image provider
+OKA_IMAGE_PROVIDER=gemini    # explicit Gemini image provider
 ```
 
 Bedrock provider requirements:
@@ -240,11 +243,20 @@ Bedrock provider requirements:
 - fail clearly when AWS credentials, region, model access, or provider configuration is missing
 - isolate Bedrock request/response shape in the provider adapter
 
-Optional OpenAI provider requirements:
+OpenAI provider requirements:
 
-- `OpenAIImageProvider` is reserved for a future change
-- if implemented, load model id from `OKA_IMAGE_MODEL`
-- fail clearly when `OPENAI_API_KEY` or model configuration is missing
+- implement `OpenAIImageProvider`
+- read API key from `OPENAI_API_KEY`
+- read image model id from `OKA_IMAGE_MODEL`, falling back to `OPENAI_IMAGE_MODEL`, then provider default
+- read optional image size from `OKA_IMAGE_SIZE`
+- fail clearly when `OPENAI_API_KEY` or SDK dependency is missing
+
+Gemini provider requirements:
+
+- implement `GeminiImageProvider`
+- read API key from `GEMINI_API_KEY`
+- read image model id from `OKA_IMAGE_MODEL`, falling back to `GEMINI_IMAGE_MODEL`, then provider default
+- fail clearly when `GEMINI_API_KEY` or SDK dependency is missing
 
 General real provider requirements:
 

@@ -134,7 +134,7 @@ When running `oka session --tools keynote`, macOS may prompt for permission to c
 - `images/schema.py` — `ImageSpec`, `SlideArtSpec`, `ImageAsset`, `ImageManifest` (Pydantic v2, `extra="forbid"`)
 - `images/planner.py` — `build_slide_art_specs(deck)` → `list[SlideArtSpec]`; delegates to `build_directed_image_prompt`
 - `images/director.py` — `build_directed_image_prompt(deck, slide, *, style_mode)` → `DirectedImagePrompt`; prompt compiler with fixed-preset style anchors and scene-before-story ordering
-- `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only PNG); `BedrockImageProvider` (Stability AI and Amazon image request formats); `load_image_provider_from_env(name)`
+- `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only PNG); `BedrockImageProvider`, `OpenAIImageProvider`, `GeminiImageProvider`; `load_image_provider_from_env(name)`
 - `images/generator.py` — `generate_image_assets(deck, provider, *, output_dir, force=False, dry_run=False, style_mode=DEFAULT_STYLE_MODE)` → `ImageManifest`
 - `SlideArtSpec.asset_filename` is a `@computed_field` — e.g. `slide_03.png`
 - Prompt hash: `sha256(f"{provider_name}\n{canonical_json}".encode("utf-8")).hexdigest()[:16]`, where `canonical_json` is `json.dumps(spec.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":"))`
@@ -142,8 +142,10 @@ When running `oka session --tools keynote`, macOS may prompt for permission to c
 - `dry_run=True`: writes `art_spec.json` only; no provider call, no PNGs, no `image_manifest.json`
 - Asset paths in manifest are relative to `output_dir`; atomic writes via `<file>.tmp` → `Path.replace()`
 - The image package MUST NOT import Keynote tools, AppleScript builders, or `OsascriptRunner`
-- `OKA_IMAGE_PROVIDER=fake|bedrock`; `OKA_IMAGE_MODEL` required for bedrock, e.g. `stability.stable-image-core-v1:1`
+- `OKA_IMAGE_PROVIDER=fake|bedrock|openai|gemini`; `OKA_IMAGE_MODEL` selects real provider model where applicable
 - Bedrock image region uses `OKA_IMAGE_AWS_REGION` first, then falls back to `AWS_REGION`; keep this separate from LLM region when needed
+- OpenAI image generation uses `OPENAI_API_KEY`, optional `OPENAI_IMAGE_MODEL`, and optional `OKA_IMAGE_SIZE`
+- Gemini image generation uses `GEMINI_API_KEY` and optional `GEMINI_IMAGE_MODEL`
 - CLI: `oka generate-images <deck_spec_en.json|deck_spec.json> [--output PATH] [--provider TEXT] [--slides TEXT] [--force] [--dry-run] [--style MODE]`; prefer `deck_spec_en.json` for real providers
 
 ## Architecture (Storybook Renderer — change 009)

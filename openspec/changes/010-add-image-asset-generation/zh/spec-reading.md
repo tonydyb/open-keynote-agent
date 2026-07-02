@@ -244,12 +244,12 @@ provider 失败时应该抛出清晰异常，不要返回半成功状态。
 - PNG signature 正确。
 - 没有调用真实 API。
 
-## 11. Provider：默认 Fake，显式 Bedrock，可选 OpenAI
+## 11. Provider：默认 Fake，显式 Bedrock/OpenAI/Gemini
 
 010 支持的 provider：
 
 ```text
-OKA_IMAGE_PROVIDER=fake|bedrock
+OKA_IMAGE_PROVIDER=fake|bedrock|openai|gemini
 ```
 
 这里使用 `OKA_` 前缀是有意的，因为现在 CLI 已经是 `oka`。已有的 `OMA_LLM_PROVIDER` 暂时作为历史 LLM 配置保留，不在 010 里机械重命名。
@@ -258,13 +258,14 @@ provider 策略：
 
 - `fake`：`OKA_IMAGE_PROVIDER` 未设置时的默认 provider，适合测试和无网络本地开发。
 - `bedrock`：主要真实 provider，需要通过 `OKA_IMAGE_PROVIDER=bedrock` 或 `--provider bedrock` 显式选择。
-- `openai`：预留给后续可选 provider；010 当前不要求实现。
+- `openai`：OpenAI 图片 provider，需要通过 `OKA_IMAGE_PROVIDER=openai` 或 `--provider openai` 显式选择。
+- `gemini`：Gemini 图片 provider，需要通过 `OKA_IMAGE_PROVIDER=gemini` 或 `--provider gemini` 显式选择。
 
 默认行为：
 
 ```text
 OKA_IMAGE_PROVIDER 未设置 -> fake
-真实生成 -> OKA_IMAGE_PROVIDER=bedrock
+真实生成 -> OKA_IMAGE_PROVIDER=bedrock/openai/gemini
 ```
 
 Bedrock provider 必须隔离在 adapter 里。
@@ -280,11 +281,20 @@ Bedrock provider 必须隔离在 adapter 里。
 - 测试不能调用 Bedrock。
 - 输出必须写成 PNG。
 
-OpenAI provider 是可选的。如果实现：
+OpenAI provider 要求：
 
 - 实现 `OpenAIImageProvider`。
-- 从 `OKA_IMAGE_MODEL` 读取 OpenAI image model id。
-- `OPENAI_API_KEY` 或 model 配置缺失时，要给清晰错误。
+- 从 `OPENAI_API_KEY` 读取 API key。
+- 从 `OKA_IMAGE_MODEL` 读取 OpenAI image model id；未设置时 fallback 到 `OPENAI_IMAGE_MODEL`，再 fallback 到 provider 默认值。
+- 从 `OKA_IMAGE_SIZE` 读取可选图片尺寸。
+- `OPENAI_API_KEY` 或 SDK 依赖缺失时，要给清晰错误。
+
+Gemini provider 要求：
+
+- 实现 `GeminiImageProvider`。
+- 从 `GEMINI_API_KEY` 读取 API key。
+- 从 `OKA_IMAGE_MODEL` 读取 Gemini image model id；未设置时 fallback 到 `GEMINI_IMAGE_MODEL`，再 fallback 到 provider 默认值。
+- `GEMINI_API_KEY` 或 SDK 依赖缺失时，要给清晰错误。
 
 如果真实 provider 需要第三方包，必须在 `pyproject.toml` 里新增专门的 optional dependency group：
 

@@ -155,7 +155,7 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 ### Image package (`images/`)
 - `images/schema.py` — `ImageSpec`, `SlideArtSpec`, `ImageAsset`, `ImageManifest` (Pydantic v2, `extra="forbid"`)
 - `images/planner.py` — `build_slide_art_specs(deck)` → `list[SlideArtSpec]`; deterministic, no LLM
-- `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only 1×1 PNG); `BedrockImageProvider` (Stability AI and Amazon image request formats via boto3); `load_image_provider_from_env(provider_name)`
+- `images/provider.py` — `ImageProvider` protocol; `FakeImageProvider` (stdlib-only 1×1 PNG); `BedrockImageProvider`, `OpenAIImageProvider`, `GeminiImageProvider`; `load_image_provider_from_env(provider_name)`
 - `images/generator.py` — `generate_image_assets(deck, provider, *, output_dir, force=False)` → `ImageManifest`
 - `SlideArtSpec.asset_filename` is a `@computed_field` derived from `slide_index` — e.g. `slide_03.png`
 - Prompt hash: `sha256(f"{provider_name}\n{canonical_json}".encode("utf-8")).hexdigest()[:16]`, where `canonical_json` is `json.dumps(spec.model_dump(mode="json"), sort_keys=True, ensure_ascii=False, separators=(",", ":"))`
@@ -165,8 +165,10 @@ Unit tests do not require Keynote, `osascript`, macOS GUI access, or special per
 - `art_spec.json` structure: `{"deck_title": ..., "slides": [SlideArtSpec, ...]}`
 - Writes are atomic: `<file>.tmp` → `Path.replace()`
 - The image package MUST NOT import `tools.keynote`, `applescript.*`, or `OsascriptRunner`
-- `OKA_IMAGE_PROVIDER=fake|bedrock` selects provider (default `fake`); `OKA_IMAGE_MODEL` required for bedrock (e.g. `stability.stable-image-core-v1:1`)
+- `OKA_IMAGE_PROVIDER=fake|bedrock|openai|gemini` selects provider (default `fake`); `OKA_IMAGE_MODEL` selects real provider model where applicable
 - Bedrock image region uses `OKA_IMAGE_AWS_REGION` first, then falls back to `AWS_REGION`; keep this separate from LLM region when needed
+- OpenAI image generation uses `OPENAI_API_KEY`, optional `OPENAI_IMAGE_MODEL`, and optional `OKA_IMAGE_SIZE`
+- Gemini image generation uses `GEMINI_API_KEY` and optional `GEMINI_IMAGE_MODEL`
 - CLI: `oka generate-images <deck_spec_en.json|deck_spec.json> [--output PATH] [--provider TEXT] [--force]`; prefer `deck_spec_en.json` for real providers because it is the English image-generation source of truth
 - Default output: `.runs/<YYYYMMDDTHHMMSSZ>-images/`
 

@@ -503,7 +503,7 @@ def render_storybook(
 def generate_images(
     deck_spec_path: Path = typer.Argument(..., help="Path to deck_spec_en.json or deck_spec.json produced by oka deck-plan."),
     output: Path | None = typer.Option(None, "--output", help="Output directory (default: unique dir under .runs/)."),
-    provider: str | None = typer.Option(None, "--provider", help="Image provider: fake or bedrock (default from OKA_IMAGE_PROVIDER or fake)."),
+    provider: str | None = typer.Option(None, "--provider", help="Image provider: fake, bedrock, openai, or gemini (default from OKA_IMAGE_PROVIDER or fake)."),
     slides: str | None = typer.Option(None, "--slides", help='Slides to generate, e.g. "1,4,9-12" (default: all slides).'),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate all images."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Write art_spec.json only; do not call provider or generate PNG files."),

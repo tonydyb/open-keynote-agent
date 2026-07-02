@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import json
 import hashlib
+import sys
+from types import ModuleType
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -22,6 +24,8 @@ from open_keynote_agent.images.planner import _NO_TEXT_INSTRUCTION, build_slide_
 from open_keynote_agent.images.provider import (
     BedrockImageProvider,
     FakeImageProvider,
+    GeminiImageProvider,
+    OpenAIImageProvider,
     UnsupportedImageProviderError,
     load_image_provider_from_env,
 )
@@ -499,6 +503,102 @@ class TestBedrockImageProvider:
 
 
 # ---------------------------------------------------------------------------
+# OpenAI / Gemini image providers
+# ---------------------------------------------------------------------------
+
+class TestOpenAIImageProvider:
+    def test_generates_png_from_b64_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        png_bytes = _PNG_SIGNATURE + b"openai"
+
+        class FakeImageData:
+            b64_json = __import__("base64").b64encode(png_bytes).decode("ascii")
+
+        class FakeImages:
+            @staticmethod
+            def generate(model: str, prompt: str, n: int, size: str):
+                assert model == "gpt-image-test"
+                assert prompt == "storybook scene"
+                assert n == 1
+                assert size == "1536x1024"
+                return type("Response", (), {"data": [FakeImageData()]})()
+
+        class FakeOpenAI:
+            def __init__(self, api_key: str):
+                assert api_key == "key"
+                self.images = FakeImages()
+
+        fake_openai = ModuleType("openai")
+        fake_openai.OpenAI = FakeOpenAI
+        monkeypatch.setitem(sys.modules, "openai", fake_openai)
+
+        out = tmp_path / "slide.png"
+        result = OpenAIImageProvider("key", "gpt-image-test").generate(ImageSpec(prompt="storybook scene"), out)
+
+        assert out.read_bytes() == png_bytes
+        assert result.provider == "openai"
+        assert result.bytes_written == len(png_bytes)
+
+    def test_requires_api_key(self):
+        with pytest.raises(ValueError, match="OPENAI_API_KEY"):
+            OpenAIImageProvider("", "gpt-image-test")
+
+
+class TestGeminiImageProvider:
+    def test_generates_png_from_inline_data_bytes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        png_bytes = _PNG_SIGNATURE + b"gemini"
+
+        class FakeInlineData:
+            data = png_bytes
+
+        class FakePart:
+            inline_data = FakeInlineData()
+
+        class FakeContent:
+            parts = [FakePart()]
+
+        class FakeCandidate:
+            content = FakeContent()
+
+        class FakeModels:
+            @staticmethod
+            def generate_content(model: str, contents: str, config):
+                assert model == "gemini-image-test"
+                assert contents == "storybook scene"
+                assert config.response_modalities == ["IMAGE"]
+                return type("Response", (), {"candidates": [FakeCandidate()]})()
+
+        class FakeGenAI(ModuleType):
+            class Client:
+                def __init__(self, api_key: str):
+                    assert api_key == "key"
+                    self.models = FakeModels()
+
+        class FakeGenerateContentConfig:
+            def __init__(self, response_modalities: list[str]):
+                self.response_modalities = response_modalities
+
+        fake_google = ModuleType("google")
+        fake_google.genai = FakeGenAI("google.genai")
+        fake_google_genai_types = ModuleType("google.genai.types")
+        fake_google_genai_types.GenerateContentConfig = FakeGenerateContentConfig
+        fake_google.genai.types = fake_google_genai_types
+        monkeypatch.setitem(sys.modules, "google", fake_google)
+        monkeypatch.setitem(sys.modules, "google.genai", fake_google.genai)
+        monkeypatch.setitem(sys.modules, "google.genai.types", fake_google_genai_types)
+
+        out = tmp_path / "slide.png"
+        result = GeminiImageProvider("key", "gemini-image-test").generate(ImageSpec(prompt="storybook scene"), out)
+
+        assert out.read_bytes() == png_bytes
+        assert result.provider == "gemini"
+        assert result.bytes_written == len(png_bytes)
+
+    def test_requires_api_key(self):
+        with pytest.raises(ValueError, match="GEMINI_API_KEY"):
+            GeminiImageProvider("", "gemini-image-test")
+
+
+# ---------------------------------------------------------------------------
 # Provider loader
 # ---------------------------------------------------------------------------
 
@@ -564,6 +664,52 @@ class TestLoadImageProviderFromEnv:
 
         assert isinstance(p, BedrockImageProvider)
         assert p.region == "us-east-1"
+
+    def test_loads_openai_config_from_env(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
+        monkeypatch.setenv("OPENAI_API_KEY", "key")
+        monkeypatch.setenv("OKA_IMAGE_MODEL", "gpt-image-test")
+        monkeypatch.setenv("OKA_IMAGE_SIZE", "1024x1024")
+
+        p = load_image_provider_from_env("openai")
+
+        assert isinstance(p, OpenAIImageProvider)
+        assert p.api_key == "key"
+        assert p.model == "gpt-image-test"
+        assert p.size == "1024x1024"
+
+    def test_openai_uses_openai_image_model_fallback(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
+        monkeypatch.setenv("OPENAI_API_KEY", "key")
+        monkeypatch.delenv("OKA_IMAGE_MODEL", raising=False)
+        monkeypatch.setenv("OPENAI_IMAGE_MODEL", "gpt-image-fallback")
+
+        p = load_image_provider_from_env("openai")
+
+        assert isinstance(p, OpenAIImageProvider)
+        assert p.model == "gpt-image-fallback"
+
+    def test_loads_gemini_config_from_env(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
+        monkeypatch.setenv("GEMINI_API_KEY", "key")
+        monkeypatch.setenv("OKA_IMAGE_MODEL", "gemini-image-test")
+
+        p = load_image_provider_from_env("gemini")
+
+        assert isinstance(p, GeminiImageProvider)
+        assert p.api_key == "key"
+        assert p.model == "gemini-image-test"
+
+    def test_gemini_uses_gemini_image_model_fallback(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OMA_SKIP_DOTENV", "1")
+        monkeypatch.setenv("GEMINI_API_KEY", "key")
+        monkeypatch.delenv("OKA_IMAGE_MODEL", raising=False)
+        monkeypatch.setenv("GEMINI_IMAGE_MODEL", "gemini-image-fallback")
+
+        p = load_image_provider_from_env("gemini")
+
+        assert isinstance(p, GeminiImageProvider)
+        assert p.model == "gemini-image-fallback"
 
     def test_skip_dotenv_for_image_provider(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.chdir(tmp_path)

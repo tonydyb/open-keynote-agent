@@ -385,6 +385,8 @@ existing PNG files. Changed prompts or `--force` trigger regeneration.
 |---|---|---|
 | `fake` | nothing | 1×1 white PNG; used in all tests |
 | `bedrock` | `OKA_IMAGE_MODEL`, `OKA_IMAGE_AWS_REGION` or `AWS_REGION`, `boto3` | AWS Bedrock Stability AI, Nova Canvas, or Titan Image |
+| `openai` | `OPENAI_API_KEY`, optional `OKA_IMAGE_MODEL` / `OPENAI_IMAGE_MODEL`, optional `OKA_IMAGE_SIZE` | OpenAI Images API |
+| `gemini` | `GEMINI_API_KEY`, optional `OKA_IMAGE_MODEL` / `GEMINI_IMAGE_MODEL` | Gemini image generation |
 
 This command does **not** open Keynote. Use `oka render-storybook --images` to insert the PNGs into Keynote slides.
 

@@ -58,8 +58,9 @@
 - [x] `BedrockImageProvider` uses `AWS_PROFILE` conventions from existing LLM adapter.
 - [x] `BedrockImageProvider` fails clearly when `OKA_IMAGE_MODEL` is missing.
 - [x] Add provider loader `load_image_provider_from_env(provider_name)` using `OKA_IMAGE_PROVIDER` with default `fake`.
-- [x] Loader supports `fake` and `bedrock`; raises `UnsupportedImageProviderError` for unknown names.
-- [x] Treat `openai` as a reserved future provider until `OpenAIImageProvider` is implemented.
+- [x] Loader supports `fake`, `bedrock`, `openai`, and `gemini`; raises `UnsupportedImageProviderError` for unknown names.
+- [x] Implement `OpenAIImageProvider` using `OPENAI_API_KEY`, `OKA_IMAGE_MODEL` / `OPENAI_IMAGE_MODEL`, and `OKA_IMAGE_SIZE`.
+- [x] Implement `GeminiImageProvider` using `GEMINI_API_KEY` and `OKA_IMAGE_MODEL` / `GEMINI_IMAGE_MODEL`.
 - [x] `BedrockImageProvider` lazy-imports boto3; raises `ImportError` with clear message if absent.
 - [x] Add clear error for unknown or unconfigured providers.
 - [x] Ensure tests never call real provider.

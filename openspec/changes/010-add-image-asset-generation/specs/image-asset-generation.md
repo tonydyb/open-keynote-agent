@@ -194,24 +194,22 @@ The system SHALL implement `FakeImageProvider`.
 
 `FakeImageProvider` SHALL write a valid PNG file without network access.
 
-The system SHALL implement `BedrockImageProvider` as the primary explicit real image provider.
-
-The system MAY implement `OpenAIImageProvider` in a future change as an optional secondary real image provider.
+The system SHALL implement `BedrockImageProvider`, `OpenAIImageProvider`, and `GeminiImageProvider` as explicit real image providers.
 
 The provider loader SHALL support these values in this change:
 
 ```text
 fake
 bedrock
+openai
+gemini
 ```
-
-`openai` is reserved as a future provider value until `OpenAIImageProvider` is implemented.
 
 When `OKA_IMAGE_PROVIDER` is unset, the provider loader SHALL default to `fake`.
 
 Tests and no-network local development MAY use the default `fake` provider or select it explicitly through dependency injection, `--provider fake`, or `OKA_IMAGE_PROVIDER=fake`.
 
-Documentation SHALL present `bedrock` as the primary real provider for real generation, selected explicitly with `--provider bedrock` or `OKA_IMAGE_PROVIDER=bedrock`.
+Documentation SHALL present `bedrock`, `openai`, and `gemini` as supported real providers, selected explicitly with `--provider` or `OKA_IMAGE_PROVIDER`.
 
 `BedrockImageProvider` SHALL:
 
@@ -223,10 +221,18 @@ Documentation SHALL present `bedrock` as the primary real provider for real gene
 - fail clearly when AWS credentials, region, model access, or provider configuration is missing
 - avoid hardcoding a single Bedrock model as the only supported image model
 
-`OpenAIImageProvider`, if implemented, SHALL:
+`OpenAIImageProvider` SHALL:
 
-- read image model id from `OKA_IMAGE_MODEL`
-- fail clearly when `OPENAI_API_KEY` or model configuration is missing
+- read API key from `OPENAI_API_KEY`
+- read image model id from `OKA_IMAGE_MODEL`, falling back to `OPENAI_IMAGE_MODEL`, then provider default
+- read optional image size from `OKA_IMAGE_SIZE`
+- fail clearly when `OPENAI_API_KEY` or SDK dependency is missing
+
+`GeminiImageProvider` SHALL:
+
+- read API key from `GEMINI_API_KEY`
+- read image model id from `OKA_IMAGE_MODEL`, falling back to `GEMINI_IMAGE_MODEL`, then provider default
+- fail clearly when `GEMINI_API_KEY` or SDK dependency is missing
 
 If an optional real provider needs third-party packages, the system SHALL add them under a dedicated `images` optional dependency group in `pyproject.toml`.
 
@@ -238,9 +244,10 @@ New image provider environment variables SHALL use the `OKA_` prefix. The provid
 OKA_IMAGE_PROVIDER
 OKA_IMAGE_MODEL
 OKA_IMAGE_AWS_REGION
+OKA_IMAGE_SIZE
 ```
 
-Supported values SHALL include `fake` and `bedrock`. `openai` is reserved for future implementation and SHALL NOT be documented as currently supported until implemented.
+Supported values SHALL include `fake`, `bedrock`, `openai`, and `gemini`.
 
 The legacy `OMA_LLM_PROVIDER` variable remains an LLM setting and SHALL NOT be used for image provider selection.
 
